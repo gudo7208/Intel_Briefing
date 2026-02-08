@@ -37,11 +37,6 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
 
     logger.info("Grok Sensor: 正在联系 xAI 查询 '%s'...", query)
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {XAI_API_KEY}"
-    }
-
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     year_str = datetime.datetime.now().strftime("%Y")
 
