@@ -1,4 +1,3 @@
-
 import httpx
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -7,6 +6,8 @@ import datetime
 import re
 import sys
 import logging
+
+from sensors.base import BaseSensor, SensorResult
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +150,40 @@ class V2EXRadar:
         clean = re.sub('<[^<]+?>', '', html_content)
         return clean[:200] + "..." if len(clean) > 200 else clean
 
+class V2EXSensor(BaseSensor):
+    """V2EX 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "V2EX"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        radar = V2EXRadar()
+        leads = radar.fetch_leads(days=1)
+        return [
+            SensorResult(
+                title=lead.title,
+                url=lead.url,
+                source="V2EX",
+                category="community",
+                heat=f"Score: {lead.desperation_score}",
+                timestamp=lead.posted_date,
+                summary=lead.summary[:100],
+                metadata={"tags": lead.tags},
+            )
+            for lead in leads[:limit]
+        ]
+
+
 if __name__ == "__main__":
-    radar = V2EXRadar()
-    leads = radar.fetch_leads(days=3)
-    for lead in leads:
-        print(f"[Score: {lead.desperation_score}] {lead.tags} {lead.title}")
-        print(f"   {lead.url}")
-        print("-" * 40)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    sensor = V2EXSensor()
+    results = sensor.fetch_with_cache()
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"[{r.heat}] {r.title}")
+            print(f"   {r.url}")
+            print()
+    else:
+        print("No V2EX leads found.")

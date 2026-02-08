@@ -8,18 +8,11 @@ import sys
 import logging
 import datetime
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional
 
-# 优先使用 httpx，回退到 requests
-try:
-    import httpx
-    HTTP_CLIENT = "httpx"
-except ImportError:
-    try:
-        import requests
-        HTTP_CLIENT = "requests"
-    except ImportError:
-        HTTP_CLIENT = None
+import httpx
+
+from sensors.base import BaseSensor, SensorResult, retry_request
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +78,6 @@ def fetch_trending(language: Optional[str] = None) -> list[GitHubTrend]:
         logger.error("未找到 GITHUB_TOKEN")
         return []
 
-    if HTTP_CLIENT is None:
-        logger.error("无可用 HTTP 客户端，请安装 httpx 或 requests")
-        return []
-
     # Calculate date 7 days ago
     seven_days_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
     
@@ -139,16 +128,15 @@ def fetch_trending(language: Optional[str] = None) -> list[GitHubTrend]:
     
     try:
         logger.info("正在发送 GraphQL 查询到 GitHub (%s)...", search_query)
-        if HTTP_CLIENT == "httpx":
-            response = httpx.post(GITHUB_API_URL, json=payload, headers=headers, timeout=30.0)
-        else:
-            response = requests.post(GITHUB_API_URL, json=payload, headers=headers, timeout=30)
-        
+        response = retry_request(
+            lambda: httpx.post(GITHUB_API_URL, json=payload, headers=headers, timeout=30.0)
+        )
+
         if response.status_code != 200:
             logger.error("API 返回 %d", response.status_code)
             logger.debug(response.text)
             return []
-            
+
         data = response.json()
         if "errors" in data:
             logger.error("GraphQL 错误: %s", data['errors'])
@@ -237,16 +225,47 @@ def trigger_ghostwriter(trend: GitHubTrend):
     finally:
         os.unlink(readme_path)
 
+class GitHubTrendingSensor(BaseSensor):
+    """GitHub Trending 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "GitHub Trending"
+
+    def is_available(self) -> bool:
+        return load_env_token() is not None
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        trends = fetch_trending()
+        return [
+            SensorResult(
+                title=t.name,
+                url=t.url,
+                source="GitHub",
+                category="tech_trends",
+                heat=f"{t.stars} stars",
+                timestamp=t.created_at[:10] if t.created_at else "",
+                summary=t.description[:100] if t.description else "",
+                metadata={"language": t.language or "", "forks": t.forks},
+            )
+            for t in trends[:limit]
+        ]
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     lang = sys.argv[1] if len(sys.argv) > 1 else None
-    trends = fetch_trending(lang)
-    if trends:
-        print_trends(trends)
-        
-        # MVP: Auto-trigger for the Top 1 item
-        top_trend = trends[0]
-        print(f"\n[Commercial Agent] 🧠 Automatically analyzing top opportunity: {top_trend.name}")
-        trigger_ghostwriter(top_trend)
-        
+    sensor = GitHubTrendingSensor()
+    if sensor.is_available():
+        results = sensor.fetch_with_cache()
+        if results:
+            for i, r in enumerate(results, 1):
+                print(f"{i}. {r.title}")
+                print(f"   {r.heat} | {r.timestamp}")
+                print(f"   {r.url}")
+                print()
+        else:
+            print("No trends found.")
     else:
-        print("No trends found.")
+        print("GITHUB_TOKEN not configured.")

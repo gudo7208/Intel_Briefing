@@ -5,6 +5,9 @@ import json
 import logging
 import httpx
 from dotenv import load_dotenv
+from typing import List
+
+from sensors.base import BaseSensor, SensorResult
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +100,39 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
         logger.error(err)
         return err
 
+class GrokSensor(BaseSensor):
+    """Grok/X 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "Grok/X"
+
+    def is_available(self) -> bool:
+        return XAI_API_KEY is not None
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        report = fetch_grok_intel("AI Agents, LLM, Tech Startups")
+        if report and "Error" not in report:
+            return [
+                SensorResult(
+                    title="X/Grok Intelligence Report",
+                    url="https://x.com",
+                    source="X (via Grok)",
+                    category="social",
+                    summary=report[:200],
+                    metadata={"content": report, "type": "markdown_report"},
+                )
+            ]
+        return []
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     if len(sys.argv) < 2:
         print("Usage: python x_grok_sensor.py <query>")
         print("Example: python x_grok_sensor.py 'AI Agents'")
     else:
         q = sys.argv[1]
-        fetch_grok_intel(q)
+        result = fetch_grok_intel(q)
+        print(result)

@@ -22,24 +22,26 @@ if LOCAL_SRC_PATH not in sys.path:
     sys.path.insert(0, LOCAL_SRC_PATH)
 
 # --- 传感器导入（安全导入，失败时记录日志） ---
-def _safe_import(module_path, name):
-    """安全导入模块，失败时记录警告"""
+def _safe_import_sensor(module_path, class_name):
+    """安全导入传感器类，失败时记录警告并返回 None"""
     try:
-        mod = __import__(module_path, fromlist=[name])
-        return getattr(mod, name), True
-    except ImportError:
-        logger.warning("%s 传感器不可用，跳过", name)
-        return None, False
+        mod = __import__(module_path, fromlist=[class_name])
+        cls = getattr(mod, class_name)
+        return cls()
+    except (ImportError, Exception) as e:
+        logger.warning("%s 传感器不可用，跳过: %s", class_name, e)
+        return None
 
-_fetch_hn, HN_AVAILABLE = _safe_import("sensors.hacker_news", "fetch_top_stories")
-_fetch_github, GH_AVAILABLE = _safe_import("sensors.github_trending", "fetch_trending")
-_fetch_36kr, KR_AVAILABLE = _safe_import("sensors.kr36_sensor", "fetch_36kr")
-_fetch_wscn, WSCN_AVAILABLE = _safe_import("sensors.wallstreetcn_sensor", "fetch_wallstreetcn")
-V2EXRadar, V2EX_AVAILABLE = _safe_import("sensors.v2ex_radar", "V2EXRadar")
-fetch_trending_products, PH_AVAILABLE = _safe_import("sensors.product_hunt", "fetch_trending_products")
-fetch_ai_papers, ARXIV_AVAILABLE = _safe_import("sensors.arxiv_ai", "fetch_ai_papers")
-fetch_grok_intel, GROK_AVAILABLE = _safe_import("sensors.x_grok_sensor", "fetch_grok_intel")
-XHSRadar, XHS_AVAILABLE = _safe_import("sensors.xhs_radar", "XHSRadar")
+# 统一使用 BaseSensor 接口导入所有传感器
+_hn_sensor = _safe_import_sensor("sensors.hacker_news", "HackerNewsSensor")
+_gh_sensor = _safe_import_sensor("sensors.github_trending", "GitHubTrendingSensor")
+_kr_sensor = _safe_import_sensor("sensors.kr36_sensor", "Kr36Sensor")
+_wscn_sensor = _safe_import_sensor("sensors.wallstreetcn_sensor", "WallStreetCNSensor")
+_v2ex_sensor = _safe_import_sensor("sensors.v2ex_radar", "V2EXSensor")
+_ph_sensor = _safe_import_sensor("sensors.product_hunt", "ProductHuntSensor")
+_arxiv_sensor = _safe_import_sensor("sensors.arxiv_ai", "ArxivSensor")
+_grok_sensor = _safe_import_sensor("sensors.x_grok_sensor", "GrokSensor")
+_xhs_sensor = _safe_import_sensor("sensors.xhs_radar", "XHSSensor")
 
 # --- 反幻觉：链接验证器 ---
 try:
@@ -88,145 +90,29 @@ def validate_grok_report(markdown_content: str) -> str:
     return validated_content
 
 
-def _fetch_hn_task(limit):
-    """HN 获取任务"""
-    results = []
-    stories = _fetch_hn(limit=limit)
-    for s in stories:
-        results.append({
-            "title": s.title,
-            "url": s.url or s.hn_url,
-            "heat": f"{s.score} points",
-            "time": f"{s.descendants} comments",
-            "category": "Hacker News",
-        })
-    return "tech_trends", results
-
-
-def _fetch_github_task(limit):
-    """GitHub 获取任务"""
-    results = []
-    trends = _fetch_github()
-    for t in trends[:limit]:
-        results.append({
-            "title": t.name,
-            "url": t.url,
-            "heat": f"{t.stars} stars",
-            "time": t.created_at[:10] if t.created_at else "",
-            "category": "GitHub",
-        })
-    return "tech_trends", results
-
-
-def _fetch_36kr_task(limit):
-    """36Kr 获取任务"""
-    results = []
-    items = _fetch_36kr(limit=limit)
-    for a in items:
-        results.append({
-            "title": a.title, "url": a.url,
-            "time": a.published, "category": "36Kr",
-        })
-    return "capital_flow", results
-
-
-def _fetch_wscn_task(limit):
-    """华尔街见闻获取任务"""
-    results = []
-    items = _fetch_wscn(limit=limit)
-    for a in items:
-        results.append({
-            "title": a.title, "url": a.url,
-            "time": a.published, "category": "WallStreetCN",
-        })
-    return "capital_flow", results
-
-
-def _fetch_v2ex_task(limit):
-    """V2EX 获取任务"""
-    results = []
-    radar = V2EXRadar()
-    leads = radar.fetch_leads(days=1)
-    for lead in leads[:limit]:
-        results.append({
-            "title": lead.title, "url": lead.url,
-            "heat": f"Score: {lead.desperation_score}",
-            "category": "V2EX",
-        })
-    return "community", results
-
-
-def _fetch_ph_task(limit):
-    """Product Hunt 获取任务"""
-    results = []
-    products = fetch_trending_products(limit)
-    for p in products:
-        results.append({
-            "source": "Product Hunt",
-            "category": "Product Hunt",
-            "title": p.name,
-            "url": p.url,
-            "heat": f"{p.votes_count} votes",
-            "time": "Today",
-            "tagline": p.tagline,
-            "grok_review": None,
-        })
-    return "product_gems", results
-
-
-def _fetch_arxiv_task(limit):
-    """ArXiv 获取任务"""
-    results = []
-    papers = fetch_ai_papers(limit=limit)
-    for p in papers:
-        results.append({
-            "source": "ArXiv",
-            "category": "ArXiv",
-            "title": p.title,
-            "url": p.url,
-            "authors": ", ".join(p.authors[:2]),
-            "time": p.published,
-            "categories": ", ".join(p.categories[:2]),
-        })
-    return "research", results
-
-
-def _fetch_grok_task(_limit):
-    """Grok/X 获取任务"""
-    results = []
-    report = fetch_grok_intel("AI Agents, LLM, Tech Startups")
-    if report and "Error" not in report:
-        validated = validate_grok_report(report)
-        results.append({
-            "source": "X (via Grok)",
-            "category": "X/Grok",
-            "content": validated,
-            "type": "markdown_report",
-        })
-        logger.info("Grok 返回 X 情报报告（链接已验证）")
-    else:
-        logger.warning("Grok 未返回数据或出错")
-    return "social", results
-
-
-def _fetch_xhs_task(_limit):
-    """小红书获取任务"""
-    results = []
-    radar = XHSRadar()
-    leads = radar.fetch_leads()
-    for lead in leads[:8]:
-        results.append({
-            "source": "小红书",
-            "category": "XHS",
-            "title": lead.title,
-            "url": lead.url,
-            "summary": lead.summary,
-        })
-    return "xhs_directives", results
+def _sensor_task(sensor, limit):
+    """统一的传感器获取任务，使用 BaseSensor 接口"""
+    if not sensor.is_available():
+        logger.warning("%s 传感器不可用", sensor.name)
+        return "", []
+    results = sensor.fetch_with_cache(limit)
+    if not results:
+        return "", []
+    items = []
+    for r in results:
+        item = r.to_dict()
+        # Grok 特殊处理：保留 markdown_report 类型
+        if r.metadata.get("type") == "markdown_report":
+            content = r.metadata.get("content", "")
+            validated = validate_grok_report(content)
+            item["content"] = validated
+            item["type"] = "markdown_report"
+        items.append(item)
+    return results[0].category, items
 
 
 def fetch_all_sources(limit_per_source: int = 10) -> dict:
-    """使用 ThreadPoolExecutor 并行获取所有数据源"""
+    """使用 ThreadPoolExecutor 并行获取所有数据源（统一 BaseSensor 接口）"""
     intel = {
         "tech_trends": [],
         "capital_flow": [],
@@ -237,40 +123,41 @@ def fetch_all_sources(limit_per_source: int = 10) -> dict:
         "xhs_directives": [],
     }
 
-    # 构建任务列表：(任务函数, 名称, 是否可用)
-    tasks = [
-        (_fetch_hn_task, "Hacker News", HN_AVAILABLE),
-        (_fetch_github_task, "GitHub", GH_AVAILABLE),
-        (_fetch_36kr_task, "36Kr", KR_AVAILABLE),
-        (_fetch_wscn_task, "WallStreetCN", WSCN_AVAILABLE),
-        (_fetch_v2ex_task, "V2EX", V2EX_AVAILABLE),
-        (_fetch_ph_task, "Product Hunt", PH_AVAILABLE),
-        (_fetch_arxiv_task, "ArXiv", ARXIV_AVAILABLE),
-        (_fetch_grok_task, "Grok/X", GROK_AVAILABLE),
-        (_fetch_xhs_task, "XHS", XHS_AVAILABLE),
+    # 构建传感器列表：(传感器实例, 名称)
+    all_sensors = [
+        (_hn_sensor, "Hacker News"),
+        (_gh_sensor, "GitHub"),
+        (_kr_sensor, "36Kr"),
+        (_wscn_sensor, "WallStreetCN"),
+        (_v2ex_sensor, "V2EX"),
+        (_ph_sensor, "Product Hunt"),
+        (_arxiv_sensor, "ArXiv"),
+        (_grok_sensor, "Grok/X"),
+        (_xhs_sensor, "XHS"),
     ]
 
-    available_tasks = [
-        (fn, name) for fn, name, avail in tasks if avail
+    available = [
+        (s, name) for s, name in all_sensors if s is not None
     ]
 
     logger.info(
         "并行获取 %d 个数据源: %s",
-        len(available_tasks),
-        ", ".join(n for _, n in available_tasks),
+        len(available),
+        ", ".join(n for _, n in available),
     )
 
     with ThreadPoolExecutor(max_workers=6) as executor:
         future_map = {
-            executor.submit(fn, limit_per_source): name
-            for fn, name in available_tasks
+            executor.submit(_sensor_task, s, limit_per_source): name
+            for s, name in available
         }
 
         for future in as_completed(future_map):
             name = future_map[future]
             try:
                 category, results = future.result()
-                intel[category].extend(results)
+                if category and category in intel:
+                    intel[category].extend(results)
                 logger.info("%s 完成，获取 %d 条", name, len(results))
             except Exception as e:
                 logger.warning("%s 失败: %s", name, e)
@@ -299,11 +186,11 @@ def generate_report(intel: dict, date_str: str) -> str:
             title = item.get("title", "Untitled")
             url = item.get("url", "#")
             heat = item.get("heat", "")
-            time_str = item.get("time", "")
-            cat = item.get("category", "")
-            
+            time_str = item.get("timestamp", "") or item.get("summary", "")
+            src = item.get("source", "")
+
             lines.append(f"### {i}. [{title}]({url})")
-            lines.append(f"📍 {cat} | 🔥 {heat} | 🕒 {time_str}")
+            lines.append(f"📍 {src} | 🔥 {heat} | 🕒 {time_str}")
             lines.append("")
     else:
         lines.append("*暂无数据*\n")
@@ -316,11 +203,11 @@ def generate_report(intel: dict, date_str: str) -> str:
         for i, item in enumerate(intel["capital_flow"][:10], 1):
             title = item.get("title", "Untitled")
             url = item.get("url", "#")
-            time_str = item.get("time", "")
-            cat = item.get("category", "")
-            
+            time_str = item.get("timestamp", "")
+            src = item.get("source", "")
+
             lines.append(f"### {i}. [{title}]({url})")
-            lines.append(f"📍 {cat} | 🕒 {time_str}")
+            lines.append(f"📍 {src} | 🕒 {time_str}")
             lines.append("")
     else:
         lines.append("*暂无数据*\n")
@@ -333,9 +220,9 @@ def generate_report(intel: dict, date_str: str) -> str:
         for i, item in enumerate(intel["research"][:5], 1):
             title = item.get("title", "Untitled")
             url = item.get("url", "#")
-            authors = item.get("authors", "")
-            time_str = item.get("time", "")
-            
+            authors = item.get("summary", "")
+            time_str = item.get("timestamp", "")
+
             lines.append(f"### {i}. [{title}]({url})")
             lines.append(f"👤 {authors} | 📅 {time_str}")
             lines.append("")
@@ -351,18 +238,12 @@ def generate_report(intel: dict, date_str: str) -> str:
             title = item.get("title", "Untitled")
             url = item.get("url", "#")
             heat = item.get("heat", "")
-            tagline = item.get("tagline", "")
-            grok_review = item.get("grok_review")
-            
+            tagline = item.get("summary", "")
+
             lines.append(f"### {i}. [{title}]({url})")
             lines.append(f"> {tagline}")
             lines.append(f"🔥 {heat}")
             lines.append("")
-            
-            # Add Grok sentiment review if available (for top 3)
-            if grok_review:
-                lines.append(f"> **🦅 Grok 舆情核查**: {grok_review}")
-                lines.append("")
     else:
         lines.append("*暂无数据 (Product Hunt API 可能需要配置)*\n")
     
@@ -372,21 +253,17 @@ def generate_report(intel: dict, date_str: str) -> str:
     
     if intel.get("social"):
         for item in intel["social"]:
-            # Check if it's a Grok markdown report
             if item.get("type") == "markdown_report":
                 lines.append(f"> 来源: {item.get('source', 'X')}\n")
                 lines.append(item.get("content", "*无内容*"))
                 lines.append("")
             else:
-                # Old format (individual posts)
                 title = item.get("title", "")
                 url = item.get("url", "#")
-                author = item.get("author", "")
                 heat = item.get("heat", "")
-                
-                lines.append(f"### {author}")
-                lines.append(f"> {title}")
-                lines.append(f"❤️ {heat} | 🔗 [Link]({url})")
+
+                lines.append(f"### [{title}]({url})")
+                lines.append(f"❤️ {heat}")
                 lines.append("")
     else:
         lines.append("*暂无数据 (需要配置 XAI_API_KEY)*\n")

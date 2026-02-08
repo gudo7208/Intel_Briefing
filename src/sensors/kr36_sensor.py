@@ -10,6 +10,8 @@ from typing import List, Optional
 
 import httpx
 
+from sensors.base import BaseSensor, SensorResult, retry_request
+
 logger = logging.getLogger(__name__)
 
 
@@ -105,10 +107,40 @@ def print_articles(articles: List[KrArticle]):
         print()
 
 
+class Kr36Sensor(BaseSensor):
+    """36Kr 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "36Kr"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        articles = fetch_36kr(limit)
+        return [
+            SensorResult(
+                title=a.title,
+                url=a.url,
+                source="36Kr",
+                category="capital_flow",
+                timestamp=a.published,
+                summary=a.summary[:100] if a.summary else "",
+            )
+            for a in articles
+        ]
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    articles = fetch_36kr(limit)
-    if articles:
-        print_articles(articles)
+    sensor = Kr36Sensor()
+    results = sensor.fetch_with_cache(limit)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            if r.summary:
+                print(f"   {r.summary[:100]}...")
+            print(f"   {r.url}")
+            print()
     else:
         print("No articles found from 36Kr.")

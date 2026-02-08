@@ -12,6 +12,8 @@ from typing import List, Optional
 
 import httpx
 
+from sensors.base import BaseSensor, SensorResult, retry_request
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -285,10 +287,41 @@ def print_products(products: List[PHProduct]):
         print(f"   🔗 {p.url}")
         print()
 
+class ProductHuntSensor(BaseSensor):
+    """Product Hunt 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "Product Hunt"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        products = fetch_trending_products(limit)
+        return [
+            SensorResult(
+                title=p.name,
+                url=p.url,
+                source="Product Hunt",
+                category="product_gems",
+                heat=f"{p.votes_count} votes",
+                summary=p.tagline,
+                metadata={"maker": p.maker_name, "topics": p.topics},
+            )
+            for p in products
+        ]
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    products = fetch_trending_products(limit)
-    if products:
-        print_products(products)
+    sensor = ProductHuntSensor()
+    results = sensor.fetch_with_cache(limit)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            print(f"   {r.summary}")
+            print(f"   {r.heat}")
+            print(f"   {r.url}")
+            print()
     else:
         print("No products found.")

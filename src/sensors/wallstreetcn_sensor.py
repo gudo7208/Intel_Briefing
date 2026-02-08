@@ -10,6 +10,8 @@ from typing import List, Optional
 
 import httpx
 
+from sensors.base import BaseSensor, SensorResult, retry_request
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,24 +97,40 @@ def fetch_wallstreetcn(limit: int = 10) -> List[WSCNArticle]:
     return articles
 
 
-def print_articles(articles: List[WSCNArticle]):
-    """Print articles in a readable format."""
-    print(f"\n{'='*60}")
-    print(f"  WallStreetCN Latest News")
-    print(f"{'='*60}\n")
+class WallStreetCNSensor(BaseSensor):
+    """华尔街见闻传感器，基于 BaseSensor 统一接口"""
 
-    for i, a in enumerate(articles, 1):
-        print(f"{i}. {a.title}")
-        if a.summary:
-            print(f"   {a.summary[:100]}...")
-        print(f"   {a.url}")
-        print()
+    @property
+    def name(self) -> str:
+        return "WallStreetCN"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        articles = fetch_wallstreetcn(limit)
+        return [
+            SensorResult(
+                title=a.title,
+                url=a.url,
+                source="WallStreetCN",
+                category="capital_flow",
+                timestamp=a.published,
+                summary=a.summary[:100] if a.summary else "",
+            )
+            for a in articles
+        ]
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    articles = fetch_wallstreetcn(limit)
-    if articles:
-        print_articles(articles)
+    sensor = WallStreetCNSensor()
+    results = sensor.fetch_with_cache(limit)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            if r.summary:
+                print(f"   {r.summary[:100]}...")
+            print(f"   {r.url}")
+            print()
     else:
         print("No articles found from WallStreetCN.")

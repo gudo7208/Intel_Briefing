@@ -9,6 +9,8 @@ import time
 import random
 import logging
 
+from sensors.base import BaseSensor, SensorResult
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -159,12 +161,40 @@ class ChromeRadar:
             # print(f"    Error inspecting detail page: {e}")
             return "0", 0, ""
 
+class ChromeSensor(BaseSensor):
+    """Chrome Web Store 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "Chrome Web Store"
+
+    def fetch(self, limit: int = 3) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        radar = ChromeRadar()
+        opps = radar.scan_opportunities(limit=limit)
+        return [
+            SensorResult(
+                title=o.name,
+                url=o.url,
+                source="Chrome Web Store",
+                category="chrome_assets",
+                heat=f"{o.rating} stars | {o.user_count_str} users",
+                summary=o.description,
+                metadata={"kill_shot": o.kill_shot},
+            )
+            for o in opps
+        ]
+
+
 if __name__ == "__main__":
-    radar = ChromeRadar()
-    opps = radar.scan_opportunities(limit=3)
-    for opp in opps:
-        print(f"💎 GEM: {opp.name}")
-        print(f"   Stats: {opp.rating}⭐ | {opp.user_count_str} Users")
-        print(f"   URL: {opp.url}")
-        print(f"   Kill Shot: {opp.kill_shot}")
-        print("-" * 40)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    sensor = ChromeSensor()
+    results = sensor.fetch(limit=3)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            print(f"   {r.heat}")
+            print(f"   {r.url}")
+            print()
+    else:
+        print("No Chrome Web Store opportunities found.")
