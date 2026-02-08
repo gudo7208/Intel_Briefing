@@ -7,14 +7,17 @@ import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Force UTF-8 stdout for Windows
-sys.stdout.reconfigure(encoding='utf-8')
+# Force UTF-8 stdout (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 # Load environment variables
 # Try multiple locations for .env
+PROJECT_ROOT = Path(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATHS = [
-    Path("d:/Skills/Roles/Commercial_Agent/.env"),
-    Path(".env")
+    PROJECT_ROOT / ".env",
 ]
 for p in ENV_PATHS:
     if p.exists():
@@ -25,10 +28,10 @@ XAI_API_KEY = os.getenv("XAI_API_KEY")
 XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1/chat/completions")
 MODEL_NAME = os.getenv("XAI_MODEL", "grok-beta")
 
-# Paths
-INTEL_DIR = Path("d:/Intel_Briefing/reports/daily_briefings")
-OUTPUT_DIR = Path("d:/Intel_Briefing/reports/opportunities")
-SKILL_PROMPT_PATH = Path("d:/Intel_Briefing/.agent/skills/revenue-architect/prompts/commercial_logic.md")
+# Paths (relative to project root)
+INTEL_DIR = PROJECT_ROOT / "reports" / "daily_briefings"
+OUTPUT_DIR = PROJECT_ROOT / "reports" / "opportunities"
+SKILL_PROMPT_PATH = PROJECT_ROOT / ".agent" / "skills" / "revenue-architect" / "prompts" / "commercial_logic.md"
 
 def query_llm(system_prompt: str, user_input: str) -> str:
     """Send request to LLM via Relay/Official API."""

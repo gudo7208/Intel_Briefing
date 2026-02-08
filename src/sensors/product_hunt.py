@@ -34,8 +34,8 @@ def load_ph_token() -> Optional[str]:
     """Load Product Hunt API token from .env."""
     # Try multiple possible .env locations
     possible_paths = [
-        os.path.join(os.path.dirname(__file__), "..", "..", ".env"),  # D:\Intel_Briefing\.env
-        os.path.join(os.path.dirname(__file__), "..", ".env"),        # D:\Intel_Briefing\src\.env
+        os.path.join(os.path.dirname(__file__), "..", "..", ".env"),
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
         os.path.join(os.getcwd(), ".env"),                            # Current working dir
     ]
     

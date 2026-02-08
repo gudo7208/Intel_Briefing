@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 Unified Intelligence Fetcher - Operation Wide-Net V2
-Combines news-aggregator-skill with ALL local sensors.
+Uses ALL local sensors for cross-platform intelligence gathering.
 Outputs a magazine-style Morning Report for Revenue Architect.
 
-Sources:
-- External (news-aggregator): HN, GitHub, 36Kr, WallStreetCN, V2EX
-- Local: Product Hunt, ArXiv, X (cache), XHS (manual directives)
+Sources (all local):
+- HN, GitHub, 36Kr, WallStreetCN, V2EX
+- Product Hunt, ArXiv, X (cache), XHS (manual directives)
 """
 
 import sys
@@ -16,30 +16,46 @@ import json
 from datetime import datetime, timedelta
 
 # --- Path Setup ---
-# Add news-aggregator-skill to path
-NEWS_SKILL_PATH = r"D:\Skills\news-aggregator-skill\scripts"
-if NEWS_SKILL_PATH not in sys.path:
-    sys.path.insert(0, NEWS_SKILL_PATH)
-
-# Add local src for sensors
-LOCAL_SRC_PATH = os.path.join(os.path.dirname(__file__), 'src')
+# Add local src for sensors and utils
+LOCAL_SRC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
 if LOCAL_SRC_PATH not in sys.path:
     sys.path.insert(0, LOCAL_SRC_PATH)
 
-# --- Imports: External (news-aggregator-skill) ---
+# --- Imports: Local Sensors (replacing external news-aggregator-skill) ---
 try:
-    from fetch_news import (
-        fetch_hackernews,
-        fetch_github,
-        fetch_36kr,
-        fetch_wallstreetcn,
-        fetch_v2ex,
-        filter_items
-    )
-except ImportError as e:
-    print(f"[ERROR] Cannot import news-aggregator: {e}")
-    print("Please ensure D:\\Skills\\news-aggregator-skill is cloned.")
-    sys.exit(1)
+    from sensors.hacker_news import fetch_top_stories as _fetch_hn
+    HN_AVAILABLE = True
+except ImportError:
+    HN_AVAILABLE = False
+    print("[WARN] Hacker News sensor not available, skipping.")
+
+try:
+    from sensors.github_trending import fetch_trending as _fetch_github
+    GH_AVAILABLE = True
+except ImportError:
+    GH_AVAILABLE = False
+    print("[WARN] GitHub Trending sensor not available, skipping.")
+
+try:
+    from sensors.kr36_sensor import fetch_36kr as _fetch_36kr
+    KR_AVAILABLE = True
+except ImportError:
+    KR_AVAILABLE = False
+    print("[WARN] 36Kr sensor not available, skipping.")
+
+try:
+    from sensors.wallstreetcn_sensor import fetch_wallstreetcn as _fetch_wscn
+    WSCN_AVAILABLE = True
+except ImportError:
+    WSCN_AVAILABLE = False
+    print("[WARN] WallStreetCN sensor not available, skipping.")
+
+try:
+    from sensors.v2ex_radar import V2EXRadar
+    V2EX_AVAILABLE = True
+except ImportError:
+    V2EX_AVAILABLE = False
+    print("[WARN] V2EX sensor not available, skipping.")
 
 # --- Imports: Local Sensors ---
 try:
@@ -129,53 +145,81 @@ def fetch_all_sources(limit_per_source: int = 10) -> dict:
         "xhs_directives": []    # XHS (manual search links)
     }
     
-    # ========== EXTERNAL SOURCES (news-aggregator-skill) ==========
-    print("[*] Fetching Hacker News...")
-    try:
-        hn_items = fetch_hackernews(limit=limit_per_source)
-        intel["tech_trends"].extend([
-            {**item, "category": "Hacker News"} for item in hn_items
-        ])
-    except Exception as e:
-        print(f"  [WARN] HN failed: {e}")
-    
-    print("[*] Fetching GitHub Trending...")
-    try:
-        gh_items = fetch_github(limit=limit_per_source)
-        intel["tech_trends"].extend([
-            {**item, "category": "GitHub"} for item in gh_items
-        ])
-    except Exception as e:
-        print(f"  [WARN] GitHub failed: {e}")
-    
-    print("[*] Fetching 36Kr...")
-    try:
-        kr_items = fetch_36kr(limit=limit_per_source)
-        intel["capital_flow"].extend([
-            {**item, "category": "36Kr"} for item in kr_items
-        ])
-    except Exception as e:
-        print(f"  [WARN] 36Kr failed: {e}")
-    
-    print("[*] Fetching WallStreetCN...")
-    try:
-        ws_items = fetch_wallstreetcn(limit=limit_per_source)
-        intel["capital_flow"].extend([
-            {**item, "category": "WallStreetCN"} for item in ws_items
-        ])
-    except Exception as e:
-        print(f"  [WARN] WallStreetCN failed: {e}")
-    
-    print("[*] Fetching V2EX Hot...")
-    try:
-        v2_items = fetch_v2ex(limit=limit_per_source)
-        intel["community"].extend([
-            {**item, "category": "V2EX"} for item in v2_items
-        ])
-    except Exception as e:
-        print(f"  [WARN] V2EX failed: {e}")
-    
-    # ========== LOCAL SENSORS ==========
+    # ========== LOCAL SENSORS: Core Sources ==========
+    if HN_AVAILABLE:
+        print("[*] Fetching Hacker News...")
+        try:
+            hn_stories = _fetch_hn(limit=limit_per_source)
+            for s in hn_stories:
+                intel["tech_trends"].append({
+                    "title": s.title,
+                    "url": s.url or s.hn_url,
+                    "heat": f"{s.score} points",
+                    "time": f"{s.descendants} comments",
+                    "category": "Hacker News",
+                })
+        except Exception as e:
+            print(f"  [WARN] HN failed: {e}")
+
+    if GH_AVAILABLE:
+        print("[*] Fetching GitHub Trending...")
+        try:
+            gh_trends = _fetch_github()
+            for t in gh_trends[:limit_per_source]:
+                intel["tech_trends"].append({
+                    "title": t.name,
+                    "url": t.url,
+                    "heat": f"{t.stars} stars",
+                    "time": t.created_at[:10] if t.created_at else "",
+                    "category": "GitHub",
+                })
+        except Exception as e:
+            print(f"  [WARN] GitHub failed: {e}")
+
+    if KR_AVAILABLE:
+        print("[*] Fetching 36Kr...")
+        try:
+            kr_items = _fetch_36kr(limit=limit_per_source)
+            for a in kr_items:
+                intel["capital_flow"].append({
+                    "title": a.title,
+                    "url": a.url,
+                    "time": a.published,
+                    "category": "36Kr",
+                })
+        except Exception as e:
+            print(f"  [WARN] 36Kr failed: {e}")
+
+    if WSCN_AVAILABLE:
+        print("[*] Fetching WallStreetCN...")
+        try:
+            ws_items = _fetch_wscn(limit=limit_per_source)
+            for a in ws_items:
+                intel["capital_flow"].append({
+                    "title": a.title,
+                    "url": a.url,
+                    "time": a.published,
+                    "category": "WallStreetCN",
+                })
+        except Exception as e:
+            print(f"  [WARN] WallStreetCN failed: {e}")
+
+    if V2EX_AVAILABLE:
+        print("[*] Fetching V2EX Hot...")
+        try:
+            v2_radar = V2EXRadar()
+            v2_leads = v2_radar.fetch_leads(days=1)
+            for lead in v2_leads[:limit_per_source]:
+                intel["community"].append({
+                    "title": lead.title,
+                    "url": lead.url,
+                    "heat": f"Score: {lead.desperation_score}",
+                    "category": "V2EX",
+                })
+        except Exception as e:
+            print(f"  [WARN] V2EX failed: {e}")
+
+    # ========== LOCAL SENSORS: Extended ==========
     if PH_AVAILABLE:
         print("[*] Fetching Product Hunt...")
         try:

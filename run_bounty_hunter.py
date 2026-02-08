@@ -16,8 +16,11 @@ except ImportError as e:
     print(f"❌ Error importing sensors: {e}")
     sys.exit(1)
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+# Ensure UTF-8 output (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 def generate_report(leads: List[Lead], xhs_leads: List[Lead], opportunities: List[ChromeAssetOpportunity], js_snippet: str, filename: str = "Daily_Hit_List.md"):
     print(f"📝 Generating Hit List Report: {filename}...")

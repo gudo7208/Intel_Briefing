@@ -4,8 +4,11 @@ from dataclasses import dataclass
 from typing import List, Tuple
 import sys
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+# Ensure UTF-8 output (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 @dataclass
 class Lead:

@@ -5,8 +5,11 @@ import json
 import httpx
 from dotenv import load_dotenv
 
-# Force UTF-8 stdout for Windows
-sys.stdout.reconfigure(encoding='utf-8')
+# Force UTF-8 stdout (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 # Load environment variables
 load_dotenv()

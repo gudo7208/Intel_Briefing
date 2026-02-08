@@ -64,8 +64,7 @@ def main():
     args = parser.parse_args()
     
     # 1. Target Directory (Intel Briefing Room)
-    # Ideally should be passed in, but hardcoding for MVP alignment with new strategy
-    STUDIO_PATH = r"D:\Intel_Briefing"
+    STUDIO_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     # Check if we are physically in the right place, if not warn (or just run)
     

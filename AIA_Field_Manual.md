@@ -47,15 +47,15 @@
 每天早上，请在终端 (Terminal) 依次执行以下三条指令：
 
 ### 第 1 步：看宏观
-```powershell
-python D:\Intel_Briefing\run_mission.py
+```bash
+python3 run_mission.py
 ```
 > **产出**: `reports/daily_briefings/Morning_Report...`
 > **看点**: 今天 Product Hunt 第一名是谁？Grok 觉得它不仅好在哪里，还差在哪里？
 
 ### 第 2 步：找现金
-```powershell
-python D:\Intel_Briefing\run_bounty_hunter.py
+```bash
+python3 run_bounty_hunter.py
 ```
 > **产出**: `reports/tactical/Hit_List...`
 > **看点**: 
@@ -64,8 +64,8 @@ python D:\Intel_Briefing\run_bounty_hunter.py
 > *   **Chrome**: 有没有新的“丑陋现金牛”出现？
 
 ### 第 3 步：捡金矿
-```powershell
-python D:\Intel_Briefing\run_alpha_radar.py
+```bash
+python3 run_alpha_radar.py
 ```
 > **产出**: `reports/web3/Alpha_Leak...`
 > **看点**: 昨晚有没有新的 Solana 抢币脚本开源？能不能包装一下？
@@ -74,11 +74,11 @@ python D:\Intel_Briefing\run_alpha_radar.py
 
 ## 📂 4. 报告归档 (Archives)
 
-所有生成的情报都会自动归档到您的“金库”：
-`D:\Intel_Briefing\reports\`
+所有生成的情报都会自动归档到您的"金库"：
+`reports/`
 
-*   `\strategy` (战略报告)
-*   `\tactical` (战术清单)
-*   `\web3` (Alpha 泄漏)
+*   `reports/strategy` (战略报告)
+*   `reports/tactical` (战术清单)
+*   `reports/web3` (Alpha 泄漏)
 
 🚀 **祝狩猎愉快，指挥官。**
