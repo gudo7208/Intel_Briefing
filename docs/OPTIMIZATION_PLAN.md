@@ -486,3 +486,189 @@ jobs:
 - `tests/test_config.py` — verify `.env` loading and missing-key behavior
 
 Use `pytest` + `respx` (httpx mock library) for HTTP mocking.
+
+### 4.5 No Scheduled Execution — `P2 / S`
+
+**Files**: `.agent/workflows/daily-report.md` (manual workflow only)
+
+**Problem**: The daily report workflow is documented as a manual agent workflow. No cron job, no systemd timer, no GitHub Actions schedule. Users must remember to run `python run_mission.py` daily.
+
+**Solution**: Add a GitHub Actions scheduled workflow or provide a `crontab` example:
+
+```yaml
+# .github/workflows/daily-briefing.yml
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 8 AM UTC daily
+```
+
+Or document a simple cron entry: `0 8 * * * cd /path/to/Intel_Briefing && python run_mission.py`
+
+---
+
+## 5. Security
+
+### 5.1 API Keys Logged to Stdout — `P0 / S`
+
+**Files**: `x_grok_sensor.py:83-85`, `run_revenue_architect.py:134-136`
+
+**Problem**: Raw LLM responses (which may echo parts of the prompt including API context) are printed directly to stdout. If stdout is captured to a log file or CI output, sensitive context leaks.
+
+**Solution**: Sanitize output before printing. Never log full API request/response payloads at INFO level — use DEBUG level behind a flag.
+
+### 5.2 SSL Verification Disabled in Production Code — `P0 / S`
+
+**Files**: `run_revenue_architect.py:58`
+
+**Problem**: Already covered in 3.4. `verify=False` on the Grok API call exposes the application to MITM attacks.
+
+**Solution**: Default to `verify=True`. Only disable via explicit `DISABLE_SSL_VERIFY=1` env var with a logged warning.
+
+### 5.3 Auto-pip-install is a Supply Chain Risk — `P1 / S`
+
+**Files**: `hacker_news.py:13-14`, `arxiv_ai.py:13-14`, `product_hunt.py:15-16`, `kr36_sensor.py:13-14`, `wallstreetcn_sensor.py:13-14`
+
+**Problem**: Already covered in 1.8. Running `pip install` at import time in 5 sensors could install a typosquatted package if the package name were ever changed or if running in a compromised environment.
+
+**Solution**: Remove all auto-install blocks. Declare dependencies in `requirements.txt`.
+
+---
+
+## 6. New Feature Ideas
+
+### 6.1 Telegram/Discord Bot Integration — `P2 / M`
+
+**Problem**: Reports are generated as local `.md` files. Users must manually open them. No push notification when a new report is ready.
+
+**Solution**: Add `src/notifiers/telegram_bot.py`:
+
+- Send daily briefing summary to a Telegram channel via Bot API
+- Include top 5 items with links
+- Add `/fetch` command to trigger on-demand report generation
+- Alternatively support Discord webhooks for team use
+
+### 6.2 Web Dashboard — `P3 / L`
+
+**Problem**: All output is static Markdown files. No way to browse historical reports, compare trends across days, or filter by source/category.
+
+**Solution**: Add a lightweight web UI using FastAPI + HTMX (or Streamlit for MVP):
+
+- `src/web/app.py` — FastAPI app serving report data
+- Browse historical reports by date
+- Filter by source (HN, GitHub, 36Kr, etc.)
+- Search across all past reports
+- Display sensor health status (last run, success/failure)
+
+### 6.3 Trend Analysis & Deduplication — `P2 / M`
+
+**Problem**: Each daily report is independent. No cross-day analysis to detect:
+
+- Recurring topics (e.g., "AI Agents" trending 5 days in a row)
+- Duplicate items across sources (same GitHub repo appearing in HN + GitHub Trending)
+- Velocity signals (a topic going from 10 mentions to 100 in 3 days)
+
+**Solution**: Add `src/analysis/trends.py`:
+
+- Store normalized items in a lightweight SQLite database (`data/intel.db`)
+- Deduplicate by URL across sources
+- Track topic frequency over a rolling 7-day window
+- Add a "Trending Up" / "Trending Down" indicator to the daily report
+
+### 6.4 Multi-LLM Backend Support — `P3 / S`
+
+**Problem**: The project is hardcoded to xAI's Grok API (`x_grok_sensor.py`, `run_revenue_architect.py`). If Grok is down or rate-limited, the LLM-dependent features (sentiment analysis, revenue architect) fail entirely.
+
+**Solution**: Abstract the LLM call behind a provider interface in `src/utils/llm.py`:
+
+- Support Grok, OpenAI, and Gemini backends (keys already in `.env.example`)
+- Auto-fallback: if primary provider fails, try the next one
+- Configuration via `LLM_PROVIDER=grok|openai|gemini` env var
+
+### 6.5 Configurable Sensor Registry — `P2 / S`
+
+**Problem**: Which sensors run is hardcoded in `fetch_unified_intel.py`. Adding or disabling a sensor requires editing Python code.
+
+**Solution**: Add a `config.yaml` or use env vars to control which sensors are active:
+
+```yaml
+# config.yaml
+sensors:
+  hacker_news: { enabled: true, limit: 10 }
+  github_trending: { enabled: true, limit: 10 }
+  kr36: { enabled: true, limit: 10 }
+  wallstreetcn: { enabled: true, limit: 10 }
+  v2ex: { enabled: true, limit: 10 }
+  product_hunt: { enabled: true, limit: 10 }
+  arxiv: { enabled: true, limit: 10 }
+  x_grok: { enabled: false, limit: 5 }
+  xhs: { enabled: true, limit: 8 }
+```
+
+---
+
+## 7. Implementation Roadmap
+
+### Phase 1: Foundation (P0 items)
+
+| # | Item | Ref | Effort |
+|---|------|-----|--------|
+| 1 | Fix hardcoded Windows paths | 1.1 | S |
+| 2 | Add `requirements.txt` | 4.1 | S |
+| 3 | Add HTTP retry logic to all sensors | 3.1 | S |
+| 4 | Fix SSL verification default | 5.2 | S |
+| 5 | Sanitize API output logging | 5.1 | S |
+| 6 | Parallelize `fetch_all_sources()` | 2.1 | M |
+
+### Phase 2: Code Quality (P1 items)
+
+| # | Item | Ref | Effort |
+|---|------|-----|--------|
+| 7 | Create `BaseSensor` abstract class | 1.2 | M |
+| 8 | Centralize `.env` loading | 1.3 | S |
+| 9 | Add `pyproject.toml`, remove `sys.path` hacks | 1.4 | M |
+| 10 | Replace `print()` with `logging` | 1.5 | M |
+| 11 | Parallelize HN story fetching | 2.2 | S |
+| 12 | Standardize missing-API-key behavior | 3.3 | S |
+| 13 | Remove auto-pip-install blocks | 5.3 | S |
+| 14 | Add CI/CD pipeline | 4.3 | M |
+| 15 | Add unit tests | 4.4 | M |
+
+### Phase 3: Polish (P2 items)
+
+| # | Item | Ref | Effort |
+|---|------|-----|--------|
+| 16 | Deduplicate `Lead` dataclass | 1.6 | S |
+| 17 | Split `fetch_unified_intel.py` into modules | 1.7 | M |
+| 18 | Remove auto-pip-install blocks | 1.8 | S |
+| 19 | Parallelize Chrome Web Store scraping | 2.3 | S |
+| 20 | Add file-based caching layer | 2.4 | M |
+| 21 | Structured error reporting (`SensorStatus`) | 3.2 | S |
+| 22 | Pre-create report directories | 3.5 | S |
+| 23 | Deduplicate UTF-8 reconfigure boilerplate | 3.6 | S |
+| 24 | Add scheduled execution (cron/GH Actions) | 4.5 | S |
+| 25 | Telegram/Discord bot integration | 6.1 | M |
+| 26 | Trend analysis & deduplication | 6.3 | M |
+| 27 | Configurable sensor registry | 6.5 | S |
+
+### Phase 4: Future (P3 items)
+
+| # | Item | Ref | Effort |
+|---|------|-----|--------|
+| 28 | Web dashboard (FastAPI/Streamlit) | 6.2 | L |
+| 29 | Multi-LLM backend support | 6.4 | S |
+
+---
+
+## Summary
+
+| Category | P0 | P1 | P2 | P3 | Total |
+|----------|----|----|----|----|-------|
+| Architecture | 1 | 4 | 3 | 0 | **8** |
+| Performance | 1 | 1 | 2 | 0 | **4** |
+| Reliability | 1 | 3 | 2 | 0 | **6** |
+| DevOps | 1 | 3 | 1 | 0 | **5** |
+| Security | 2 | 1 | 0 | 0 | **3** |
+| New Features | 0 | 0 | 3 | 2 | **5** |
+| **Total** | **6** | **12** | **11** | **2** | **31** |
+
+**Recommended starting point**: Phase 1 items (6 tasks, mostly S effort) will fix the most critical issues — broken cross-platform paths, missing dependency manifest, no retries, security gaps, and the sequential fetch bottleneck.
