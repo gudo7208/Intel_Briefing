@@ -6,7 +6,7 @@ import logging
 from dotenv import load_dotenv
 from typing import List
 
-from sensors.base import BaseSensor, SensorResult
+from src.sensors.base import BaseSensor, SensorResult
 from src.llm.factory import get_llm_provider
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,9 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
 
 class GrokSensor(BaseSensor):
     """Grok/X 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:

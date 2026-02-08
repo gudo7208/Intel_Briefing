@@ -5,11 +5,10 @@ import logging
 
 # 使用相对于脚本位置的路径，避免硬编码 Windows 路径
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_SRC_PATH = os.path.join(_SCRIPT_DIR, 'src')
-if _SRC_PATH not in sys.path:
-    sys.path.insert(0, _SRC_PATH)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
 
-from sensors.product_hunt import fetch_trending_products
+from src.sensors.product_hunt import fetch_trending_products
 
 logger = logging.getLogger(__name__)
 

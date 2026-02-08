@@ -11,9 +11,11 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 import httpx
+from dotenv import load_dotenv
 
-from sensors.base import BaseSensor, SensorResult, retry_request
+from src.sensors.base import BaseSensor, SensorResult, retry_request
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 GITHUB_API_URL = "https://api.github.com/graphql"
@@ -40,33 +42,8 @@ class GitHubTrend:
         self.hype_score = min(100, int(math.log10(max(self.stars, 1)) * 25))
 
 def load_env_token() -> Optional[str]:
-    """Load GITHUB_TOKEN from .env file manually."""
-    # Strategy: Start with relative path, fallback to CWD
-    candidates = [
-        os.path.join(os.path.dirname(__file__), "..", ".env"),
-        os.path.join(os.getcwd(), ".env")
-    ]
-    
-    for env_path in candidates:
-        if os.path.exists(env_path):
-            try:
-                # utf-8-sig handles BOM which is common on Windows
-                with open(env_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"): continue
-                        
-                        # Case 1: Standard Key=Value
-                        if "GITHUB_TOKEN=" in line:
-                            return line.split("=", 1)[1].strip()
-                            
-                        # Case 2: Raw Token (User just pasted the token)
-                        if line.startswith("ghp_") or line.startswith("github_pat_"):
-                            return line
-            except Exception:
-                pass
-                
-    return os.environ.get("GITHUB_TOKEN")
+    """Load GITHUB_TOKEN from environment (via python-dotenv)."""
+    return os.getenv("GITHUB_TOKEN")
 
 def fetch_trending(language: Optional[str] = None) -> list[GitHubTrend]:
     """
@@ -203,7 +180,7 @@ def trigger_ghostwriter(trend: GitHubTrend):
         
     try:
         # Call the Curator script
-        script_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "Generators", "Curator", "curator.py")
+        script_path = os.path.join(os.path.dirname(__file__), "..", "generators", "curator.py")
         script_path = os.path.abspath(script_path)
         
         # Clean name for filename
@@ -227,6 +204,9 @@ def trigger_ghostwriter(trend: GitHubTrend):
 
 class GitHubTrendingSensor(BaseSensor):
     """GitHub Trending 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:

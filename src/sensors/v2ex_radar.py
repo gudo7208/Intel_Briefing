@@ -1,13 +1,13 @@
 import httpx
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import datetime
 import re
 import sys
 import logging
 
-from sensors.base import BaseSensor, SensorResult
+from src.sensors.base import BaseSensor, SensorResult
 
 logger = logging.getLogger(__name__)
 
@@ -53,17 +53,14 @@ class V2EXRadar:
         "Rust", "图像", "视觉", "识别", "抠图", "Automation", "Bot"
     ]
 
-    def __init__(self):
-        self.client = httpx.Client(timeout=15.0)
-
     def fetch_leads(self, days: int = 1) -> List[Lead]:
         logger.info("正在扫描 V2EX 线索（过去 %d 天）...", days)
         all_leads = []
-        
-        for category, url in self.RSS_FEEDS.items():
+
+        with httpx.Client(timeout=15.0) as client:
+          for category, url in self.RSS_FEEDS.items():
             try:
-                # print(f"  - Checking {category}...")
-                response = self.client.get(url)
+                response = client.get(url)
                 response.raise_for_status()
                 
                 # Parse XML
@@ -110,7 +107,7 @@ class V2EXRadar:
         logger.info("从 V2EX 找到 %d 条潜在线索", len(all_leads))
         return all_leads
 
-    def _analyze_content(self, title: str, content: str) -> (List[str], int):
+    def _analyze_content(self, title: str, content: str) -> Tuple[List[str], int]:
         text = (title + content).lower()
         found_tags = []
         score = 0
@@ -152,6 +149,9 @@ class V2EXRadar:
 
 class V2EXSensor(BaseSensor):
     """V2EX 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:

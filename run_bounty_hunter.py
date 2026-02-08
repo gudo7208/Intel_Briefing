@@ -5,13 +5,13 @@ import datetime
 from typing import List
 import argparse
 
-# Add sensors path
-sys.path.append(os.path.join(os.path.dirname(__file__), "src", "sensors"))
+# Add src path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 try:
-    from v2ex_radar import V2EXRadar, Lead
-    from chrome_radar import ChromeRadar, ChromeAssetOpportunity
-    from xhs_radar import XHSRadar # New Import
+    from sensors.v2ex_radar import V2EXRadar, Lead
+    from sensors.chrome_radar import ChromeRadar, ChromeAssetOpportunity
+    from sensors.xhs_radar import XHSRadar
 except ImportError as e:
     print(f"❌ Error importing sensors: {e}")
     sys.exit(1)

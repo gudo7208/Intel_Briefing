@@ -16,10 +16,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 logger = logging.getLogger(__name__)
 
 # --- Path Setup ---
-# Add local src for sensors and utils
-LOCAL_SRC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
-if LOCAL_SRC_PATH not in sys.path:
-    sys.path.insert(0, LOCAL_SRC_PATH)
+# Add project root for `from src.sensors.*` imports
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 # --- 传感器导入（安全导入，失败时记录日志） ---
 def _safe_import_sensor(module_path, class_name):
@@ -33,19 +33,19 @@ def _safe_import_sensor(module_path, class_name):
         return None
 
 # 统一使用 BaseSensor 接口导入所有传感器
-_hn_sensor = _safe_import_sensor("sensors.hacker_news", "HackerNewsSensor")
-_gh_sensor = _safe_import_sensor("sensors.github_trending", "GitHubTrendingSensor")
-_kr_sensor = _safe_import_sensor("sensors.kr36_sensor", "Kr36Sensor")
-_wscn_sensor = _safe_import_sensor("sensors.wallstreetcn_sensor", "WallStreetCNSensor")
-_v2ex_sensor = _safe_import_sensor("sensors.v2ex_radar", "V2EXSensor")
-_ph_sensor = _safe_import_sensor("sensors.product_hunt", "ProductHuntSensor")
-_arxiv_sensor = _safe_import_sensor("sensors.arxiv_ai", "ArxivSensor")
-_grok_sensor = _safe_import_sensor("sensors.x_grok_sensor", "GrokSensor")
-_xhs_sensor = _safe_import_sensor("sensors.xhs_radar", "XHSSensor")
+_hn_sensor = _safe_import_sensor("src.sensors.hacker_news", "HackerNewsSensor")
+_gh_sensor = _safe_import_sensor("src.sensors.github_trending", "GitHubTrendingSensor")
+_kr_sensor = _safe_import_sensor("src.sensors.kr36_sensor", "Kr36Sensor")
+_wscn_sensor = _safe_import_sensor("src.sensors.wallstreetcn_sensor", "WallStreetCNSensor")
+_v2ex_sensor = _safe_import_sensor("src.sensors.v2ex_radar", "V2EXSensor")
+_ph_sensor = _safe_import_sensor("src.sensors.product_hunt", "ProductHuntSensor")
+_arxiv_sensor = _safe_import_sensor("src.sensors.arxiv_ai", "ArxivSensor")
+_grok_sensor = _safe_import_sensor("src.sensors.x_grok_sensor", "GrokSensor")
+_xhs_sensor = _safe_import_sensor("src.sensors.xhs_radar", "XHSSensor")
 
 # --- 反幻觉：链接验证器 ---
 try:
-    from utils.verifier import verify_link
+    from src.utils.verifier import verify_link
     import re
     VERIFIER_AVAILABLE = True
 except ImportError:

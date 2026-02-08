@@ -4,7 +4,6 @@ import os
 import datetime
 
 # Add sensors path
-# Add sensors path
 sys.path.append(os.path.join(os.path.dirname(__file__), "src", "sensors"))
 # Add src path for utils
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))

@@ -10,7 +10,7 @@ from typing import List, Optional
 
 import httpx
 
-from sensors.base import BaseSensor, SensorResult, retry_request
+from src.sensors.base import BaseSensor, SensorResult, retry_request
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,9 @@ def fetch_wallstreetcn(limit: int = 10) -> List[WSCNArticle]:
 
 class WallStreetCNSensor(BaseSensor):
     """华尔街见闻传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:

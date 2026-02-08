@@ -2,14 +2,14 @@
 import httpx
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import sys
 import re
 import time
 import random
 import logging
 
-from sensors.base import BaseSensor, SensorResult
+from src.sensors.base import BaseSensor, SensorResult
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +43,14 @@ class ChromeRadar:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9"
         }
-        self.client = httpx.Client(headers=self.headers, timeout=20.0, follow_redirects=True)
+        self.client = None
 
     def scan_opportunities(self, limit: int = 3) -> List[ChromeAssetOpportunity]:
         logger.info("正在扫描 Chrome Web Store...")
         opportunities = []
-        
-        for cat_name, url in self.CATEGORIES.items():
+        self.client = httpx.Client(headers=self.headers, timeout=20.0, follow_redirects=True)
+        try:
+          for cat_name, url in self.CATEGORIES.items():
             logger.info("正在扫描分类: %s...", cat_name)
             try:
                 response = self.client.get(url)
@@ -116,10 +117,13 @@ class ChromeRadar:
                         
             except Exception as e:
                 logger.error("扫描分类 %s 出错: %s", cat_name, e)
-                
+        finally:
+          self.client.close()
+          self.client = None
+
         return opportunities
 
-    def _inspect_detail_page(self, url: str) -> (str, int, str):
+    def _inspect_detail_page(self, url: str) -> Tuple[str, int, str]:
         """
         Visits the extension detail page to get User Count and 1-Star Reviews.
         """
@@ -163,6 +167,9 @@ class ChromeRadar:
 
 class ChromeSensor(BaseSensor):
     """Chrome Web Store 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:

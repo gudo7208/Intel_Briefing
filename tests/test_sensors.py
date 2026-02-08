@@ -2,11 +2,11 @@
 import sys
 import os
 
-# sensors use `from sensors.base import ...` so src/ must be on sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+# sensors now use `from src.sensors.base import ...` so project root must be on sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from sensors.hacker_news import fetch_top_stories, HNStory
-from sensors.arxiv_ai import fetch_ai_papers, ArxivPaper
+from src.sensors.hacker_news import fetch_top_stories, HNStory
+from src.sensors.arxiv_ai import fetch_ai_papers, ArxivPaper
 
 
 def test_hn_import():

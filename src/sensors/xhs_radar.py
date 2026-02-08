@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 import sys
 
-from sensors.base import BaseSensor, SensorResult
+from src.sensors.base import BaseSensor, SensorResult
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,9 @@ class XHSRadar:
 
 class XHSSensor(BaseSensor):
     """小红书传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:

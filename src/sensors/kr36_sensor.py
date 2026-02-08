@@ -10,7 +10,7 @@ from typing import List, Optional
 
 import httpx
 
-from sensors.base import BaseSensor, SensorResult, retry_request
+from src.sensors.base import BaseSensor, SensorResult, retry_request
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,9 @@ def print_articles(articles: List[KrArticle]):
 
 class Kr36Sensor(BaseSensor):
     """36Kr 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
 
     @property
     def name(self) -> str:
