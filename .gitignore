@@ -15,6 +15,9 @@ revenue/
 # 商业逻辑配置 (包含个人信息)
 .agent/skills/revenue-architect/prompts/
 
+# 传感器文件缓存
+.cache/
+
 # Python 缓存
 __pycache__/
 *.pyc

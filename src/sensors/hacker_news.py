@@ -1,15 +1,19 @@
 """
 Hacker News Sensor - 从 Hacker News 获取热门文章。
 使用官方 Firebase API（无需认证）。
+- 批量并发请求解决 N+1 问题
+- 指数退避重试
+- 文件缓存避免重复抓取
 """
 import sys
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import List, Optional
 
 import httpx
 
-from sensors.base import BaseSensor, SensorResult
+from sensors.base import BaseSensor, SensorResult, retry_request
 
 logger = logging.getLogger(__name__)
 
@@ -27,28 +31,54 @@ class HNStory:
     def hn_url(self) -> str:
         return f"https://news.ycombinator.com/item?id={self.id}"
 
-def fetch_top_stories(limit: int = 10) -> List[HNStory]:
-    """获取 Hacker News 热门文章"""
-    logger.info("正在获取 Hacker News 前 %d 篇文章...", limit)
-
-    # 获取热门文章 ID 列表
-    resp = httpx.get("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=15)
-    story_ids = resp.json()[:limit]
-
-    stories = []
-    for sid in story_ids:
-        item_resp = httpx.get(f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", timeout=10)
-        item = item_resp.json()
+def _fetch_story(sid: int) -> Optional[HNStory]:
+    """获取单个 story 详情（带重试）"""
+    try:
+        resp = retry_request(
+            lambda _sid=sid: httpx.get(
+                f"https://hacker-news.firebaseio.com/v0/item/{_sid}.json",
+                timeout=10,
+            ),
+        )
+        item = resp.json()
         if item and item.get("type") == "story":
-            stories.append(HNStory(
+            return HNStory(
                 id=item["id"],
                 title=item.get("title", ""),
                 url=item.get("url"),
                 score=item.get("score", 0),
                 by=item.get("by", "unknown"),
-                descendants=item.get("descendants", 0)
-            ))
+                descendants=item.get("descendants", 0),
+            )
+    except Exception as e:
+        logger.warning("获取 story %d 失败: %s", sid, e)
+    return None
 
+
+def fetch_top_stories(limit: int = 10) -> List[HNStory]:
+    """获取 Hacker News 热门文章（批量并发请求）"""
+    logger.info("正在获取 Hacker News 前 %d 篇文章...", limit)
+
+    # 获取热门文章 ID 列表（带重试）
+    resp = retry_request(
+        lambda: httpx.get(
+            "https://hacker-news.firebaseio.com/v0/topstories.json",
+            timeout=15,
+        ),
+    )
+    story_ids = resp.json()[:limit]
+
+    # 批量并发获取 story 详情，解决 N+1 问题
+    stories: List[HNStory] = []
+    with ThreadPoolExecutor(max_workers=min(limit, 10)) as pool:
+        futures = {pool.submit(_fetch_story, sid): sid for sid in story_ids}
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                stories.append(result)
+
+    # 按 score 降序排列，保持稳定顺序
+    stories.sort(key=lambda s: s.score, reverse=True)
     return stories
 
 class HackerNewsSensor(BaseSensor):
@@ -61,17 +91,17 @@ class HackerNewsSensor(BaseSensor):
     def fetch(self, limit: int = 10) -> List[SensorResult]:
         """获取数据并转换为统一的 SensorResult 格式"""
         stories = fetch_top_stories(limit)
-        results = []
-        for s in stories:
-            results.append(SensorResult(
+        return [
+            SensorResult(
                 title=s.title,
                 url=s.url or s.hn_url,
                 source="Hacker News",
                 category="tech_trends",
                 heat=f"{s.score} points",
                 summary=f"{s.descendants} comments | by {s.by}",
-            ))
-        return results
+            )
+            for s in stories
+        ]
 
 
 def print_stories(stories: List[HNStory]):
@@ -90,7 +120,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     sensor = HackerNewsSensor()
-    results = sensor.fetch(limit)
+    results = sensor.fetch_with_cache(limit)
     if results:
         for i, r in enumerate(results, 1):
             print(f"{i}. {r.title}")

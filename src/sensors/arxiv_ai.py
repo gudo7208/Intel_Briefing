@@ -11,7 +11,7 @@ from datetime import datetime
 
 import httpx
 
-from sensors.base import BaseSensor, SensorResult
+from sensors.base import BaseSensor, SensorResult, retry_request
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +34,18 @@ class ArxivPaper:
         return f"https://arxiv.org/pdf/{self.id}.pdf"
 
 def fetch_ai_papers(limit: int = 10) -> List[ArxivPaper]:
-    """获取 arXiv 最新 AI/ML 论文"""
+    """获取 arXiv 最新 AI/ML 论文（带重试）"""
     logger.info("正在获取 arXiv 前 %d 篇 AI 论文...", limit)
 
-    # 查询 AI 分类
     query = "cat:cs.AI"
-    url = f"https://export.arxiv.org/api/query?search_query={query}&start=0&max_results={limit}&sortBy=submittedDate&sortOrder=descending"
+    api_url = (
+        f"https://export.arxiv.org/api/query?search_query={query}"
+        f"&start=0&max_results={limit}"
+        f"&sortBy=submittedDate&sortOrder=descending"
+    )
 
     try:
-        resp = httpx.get(url, timeout=30)
+        resp = retry_request(lambda: httpx.get(api_url, timeout=30))
         xml = resp.text
 
         if len(xml) < 500:
@@ -86,9 +89,8 @@ class ArxivSensor(BaseSensor):
     def fetch(self, limit: int = 10) -> List[SensorResult]:
         """获取数据并转换为统一的 SensorResult 格式"""
         papers = fetch_ai_papers(limit)
-        results = []
-        for p in papers:
-            results.append(SensorResult(
+        return [
+            SensorResult(
                 title=p.title,
                 url=p.url,
                 source="ArXiv",
@@ -96,8 +98,9 @@ class ArxivSensor(BaseSensor):
                 timestamp=p.published,
                 summary=", ".join(p.authors[:2]),
                 metadata={"categories": ", ".join(p.categories[:2])},
-            ))
-        return results
+            )
+            for p in papers
+        ]
 
 
 def print_papers(papers: List[ArxivPaper]):
@@ -117,7 +120,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     sensor = ArxivSensor()
-    results = sensor.fetch(limit)
+    results = sensor.fetch_with_cache(limit)
     if results:
         for i, r in enumerate(results, 1):
             print(f"{i}. {r.title}")
