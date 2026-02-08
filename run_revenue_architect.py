@@ -2,7 +2,6 @@ import os
 import sys
 import glob
 import json
-import httpx
 import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -14,7 +13,6 @@ except (AttributeError, OSError):
     pass
 
 # Load environment variables
-# Try multiple locations for .env
 PROJECT_ROOT = Path(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATHS = [
     PROJECT_ROOT / ".env",
@@ -23,10 +21,8 @@ for p in ENV_PATHS:
     if p.exists():
         load_dotenv(p)
 
-# Global Config
-XAI_API_KEY = os.getenv("XAI_API_KEY")
-XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1/chat/completions")
-MODEL_NAME = os.getenv("XAI_MODEL", "grok-beta")
+# 导入 LLM 抽象层
+from src.llm.factory import get_llm_provider
 
 # Paths (relative to project root)
 INTEL_DIR = PROJECT_ROOT / "reports" / "daily_briefings"
@@ -34,34 +30,12 @@ OUTPUT_DIR = PROJECT_ROOT / "reports" / "opportunities"
 SKILL_PROMPT_PATH = PROJECT_ROOT / ".agent" / "skills" / "revenue-architect" / "prompts" / "commercial_logic.md"
 
 def query_llm(system_prompt: str, user_input: str) -> str:
-    """Send request to LLM via Relay/Official API."""
-    if not XAI_API_KEY:
-        return "❌ Error: XAI_API_KEY not found."
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {XAI_API_KEY}"
-    }
-
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_input}
-        ],
-        "stream": False,
-        "temperature": 0.5
-    }
-
+    """通过 LLM 抽象层发送请求，自动选择配置的 Provider。"""
     try:
-        # verify=False to handle potential proxy SSL interception issues
-        response = httpx.post(XAI_BASE_URL, headers=headers, json=payload, timeout=90, verify=False)
-        response.raise_for_status()
-        
-        data = response.json()
-        return data['choices'][0]['message']['content']
+        llm = get_llm_provider()
+        return llm.analyze(system_prompt, user_input, timeout=90)
     except Exception as e:
-        return f"⚠️ LLM Call Failed: {e}"
+        return f"⚠️ LLM 调用失败: {e}"
 
 def get_latest_briefing() -> Path:
     """Find the most recent Daily Briefing markdown file."""
@@ -122,7 +96,13 @@ def run_revenue_architect(test_mode: bool = False):
     system_prompt = SKILL_PROMPT_PATH.read_text(encoding='utf-8')
 
     # 4. Execute
-    print(f"🧠 Analyzing Intel with Model: {MODEL_NAME}...")
+    # 通过 LLM 抽象层获取当前 Provider 信息
+    try:
+        llm = get_llm_provider()
+        model_info = f"{llm.name} ({getattr(llm, 'model', 'N/A')})"
+    except Exception:
+        model_info = "未知"
+    print(f"🧠 Analyzing Intel with Model: {model_info}...")
     mission_plan = query_llm(
         system_prompt=system_prompt,
         user_input=f"Here is the latest Intelligence Report. Identify actionable Antigravity Missions:\n\n{intel_content}"

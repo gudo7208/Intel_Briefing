@@ -3,11 +3,11 @@ import sys
 import datetime
 import json
 import logging
-import httpx
 from dotenv import load_dotenv
 from typing import List
 
 from sensors.base import BaseSensor, SensorResult
+from src.llm.factory import get_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +20,15 @@ except (AttributeError, OSError):
 # Load environment variables
 load_dotenv()
 
-# Configuration
+# 保留 XAI_API_KEY 用于 is_available() 检查
 XAI_API_KEY = os.getenv("XAI_API_KEY")
-# Default to official endpoint, but allow override for Relay Services (中转站)
-XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1/chat/completions")
-MODEL_NAME = os.getenv("XAI_MODEL", "grok-beta")  # Relay users: set to 'grok-3' or 'grok-4'
 
 def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
-    """
-    Fetch intelligence from X using xAI's Grok API.
-    Returns the markdown report.
-    """
-    if not XAI_API_KEY:
-        logger.error("XAI_API_KEY 未在 .env 中找到")
-        return "Error: No API Key."
+    """通过 LLM 抽象层获取情报，返回 markdown 报告。
 
-    logger.info("Grok Sensor: 正在联系 xAI 查询 '%s'...", query)
+    已重构为使用统一的 LLMProvider 接口，不再直接调用 httpx。
+    """
+    logger.info("Grok Sensor: 正在查询 '%s'...", query)
 
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     year_str = datetime.datetime.now().strftime("%Y")
@@ -53,45 +46,17 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
         )
         user_content = f"Search X for the latest trends about '{query}' happened in {year_str}. Focus on specific recent events. Reply in Chinese."
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {XAI_API_KEY}"
-    }
-
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {
-                "role": "system", 
-                "content": system_content
-            },
-            {
-                "role": "user", 
-                "content": user_content
-            }
-        ],
-        "stream": False,
-        "temperature": 0.5
-    }
-
     try:
-        response = httpx.post(XAI_BASE_URL, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        
-        data = response.json()
-        content = data['choices'][0]['message']['content']
-        
-        logger.info("Grok 情报报告: %s", query)
+        # 通过工厂函数获取当前配置的 LLM Provider
+        llm = get_llm_provider()
+        content = llm.analyze(system_content, user_content, timeout=60)
+
+        logger.info("情报报告已生成: %s", query)
         logger.debug(content)
-        
         return content
-        
-    except httpx.HTTPStatusError as e:
-        err = f"API 错误: {e.response.status_code}"
-        logger.error(err)
-        return err
+
     except Exception as e:
-        err = f"连接错误: {e}"
+        err = f"LLM 调用错误: {e}"
         logger.error(err)
         return err
 
