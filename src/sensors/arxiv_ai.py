@@ -1,19 +1,19 @@
 """
-arXiv AI Sensor - Fetches latest AI/ML papers from arXiv.
-Uses the official arXiv API (no auth required).
+arXiv AI Sensor - 从 arXiv 获取最新 AI/ML 论文。
+使用官方 arXiv API（无需认证）。
 """
 import sys
 import re
+import logging
 from dataclasses import dataclass
 from typing import List
 from datetime import datetime
 
-try:
-    import httpx
-except ImportError:
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "httpx", "-q"])
-    import httpx
+import httpx
+
+from sensors.base import BaseSensor, SensorResult
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ArxivPaper:
@@ -34,22 +34,22 @@ class ArxivPaper:
         return f"https://arxiv.org/pdf/{self.id}.pdf"
 
 def fetch_ai_papers(limit: int = 10) -> List[ArxivPaper]:
-    """Fetch latest AI/ML papers from arXiv."""
-    print(f"  → Fetching latest {limit} AI papers from arXiv...")
-    
-    # Query for AI categories - URL encoded properly
+    """获取 arXiv 最新 AI/ML 论文"""
+    logger.info("正在获取 arXiv 前 %d 篇 AI 论文...", limit)
+
+    # 查询 AI 分类
     query = "cat:cs.AI"
     url = f"https://export.arxiv.org/api/query?search_query={query}&start=0&max_results={limit}&sortBy=submittedDate&sortOrder=descending"
-    
+
     try:
         resp = httpx.get(url, timeout=30)
         xml = resp.text
-        
+
         if len(xml) < 500:
-            print(f"    DEBUG: Short response ({len(xml)} bytes)")
+            logger.debug("响应过短 (%d bytes)", len(xml))
             return []
     except Exception as e:
-        print(f"    ERROR: {e}")
+        logger.error("请求失败: %s", e)
         return []
     
     papers = []
@@ -76,23 +76,54 @@ def fetch_ai_papers(limit: int = 10) -> List[ArxivPaper]:
     
     return papers
 
+class ArxivSensor(BaseSensor):
+    """arXiv AI 传感器，基于 BaseSensor 统一接口"""
+
+    @property
+    def name(self) -> str:
+        return "ArXiv AI"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        papers = fetch_ai_papers(limit)
+        results = []
+        for p in papers:
+            results.append(SensorResult(
+                title=p.title,
+                url=p.url,
+                source="ArXiv",
+                category="research",
+                timestamp=p.published,
+                summary=", ".join(p.authors[:2]),
+                metadata={"categories": ", ".join(p.categories[:2])},
+            ))
+        return results
+
+
 def print_papers(papers: List[ArxivPaper]):
-    """Print papers in a readable format."""
+    """以可读格式打印论文列表"""
     print(f"\n{'='*60}")
-    print(f"  📚 arXiv AI/ML Latest Papers")
+    print(f"  arXiv AI/ML Latest Papers")
     print(f"{'='*60}\n")
-    
+
     for i, p in enumerate(papers, 1):
         print(f"{i}. {p.title}")
-        print(f"   👤 {', '.join(p.authors)}")
-        print(f"   📅 {p.published} | 🏷️ {', '.join(p.categories)}")
-        print(f"   🔗 {p.url}")
+        print(f"   {', '.join(p.authors)}")
+        print(f"   {p.published} | {', '.join(p.categories)}")
+        print(f"   {p.url}")
         print()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    papers = fetch_ai_papers(limit)
-    if papers:
-        print_papers(papers)
+    sensor = ArxivSensor()
+    results = sensor.fetch(limit)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            print(f"   {r.summary}")
+            print(f"   {r.timestamp} | {r.metadata.get('categories', '')}")
+            print(f"   {r.url}")
+            print()
     else:
-        print("No papers found.")
+        logger.warning("未获取到任何论文。")

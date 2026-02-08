@@ -1,11 +1,13 @@
 """
-Curator - The Intelligence Analyst.
-Generates structured commercial insights from technical raw data.
+Curator - 情报分析师。
+从技术原始数据生成结构化商业洞察。
 """
 import os
 import sys
+import logging
 import argparse
-# import yaml # Config optional for now
+
+logger = logging.getLogger(__name__)
 
 def generate_analyst_prompt(repo_name: str, readme_text: str) -> str:
     """Construct the Analyst Prompt demanding Chinese output."""
@@ -73,7 +75,7 @@ def main():
         with open(args.readme, "r", encoding="utf-8") as f:
             readme_text = f.read()
     except Exception as e:
-        print(f"Error reading readme: {e}")
+        logger.error("读取 README 失败: %s", e)
         return
 
     # 3. Generate Prompt
@@ -85,14 +87,14 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     output_path = os.path.join(output_dir, args.output)
-    print(f"🧐 Curator: Analyzing {args.repo_name}...")
+    logger.info("Curator: 正在分析 %s...", args.repo_name)
     
     # Simulating LLM Call -> Save Prompt
     with open(output_path + ".prompt", "w", encoding="utf-8") as f:
         f.write(prompt)
         
-    print(f"✅ Intelligence Briefing Query generated at: {output_path}.prompt")
-    print("👉 ACTION: Submit this query to the LLM to get the Chinese report.")
+    logger.info("情报分析查询已生成: %s.prompt", output_path)
+    logger.info("请将此查询提交给 LLM 以获取中文报告。")
 
 if __name__ == "__main__":
     main()
