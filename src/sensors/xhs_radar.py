@@ -1,14 +1,11 @@
 
 import datetime
+import logging
 from dataclasses import dataclass
 from typing import List, Tuple
 import sys
 
-# Ensure UTF-8 output (may fail on some Linux systems)
-try:
-    sys.stdout.reconfigure(encoding='utf-8')
-except (AttributeError, OSError):
-    pass
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Lead:
@@ -54,7 +51,7 @@ class XHSRadar:
         Returns 'Manual Action' leads pointing to search results.
         And instructions on how to scrape.
         """
-        print(f"📕 Preparing XHS Radar (Past {days} days)...")
+        logger.info("正在准备小红书雷达（过去 %d 天）...", days)
         leads = []
         
         # 1. Generate Manual Link Leads
@@ -74,7 +71,7 @@ class XHSRadar:
                 desperation_score=50 # Base score to ensure it shows up
             ))
             
-        print(f"✅ Generated {len(leads)} search directives for XHS.")
+        logger.info("已生成 %d 条小红书搜索指令", len(leads))
         return leads
 
     def get_browser_js_snippet(self) -> str:

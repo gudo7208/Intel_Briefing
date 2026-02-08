@@ -1,18 +1,16 @@
 """
-WallStreetCN Sensor - Fetches latest financial news from WallStreetCN (华尔街见闻).
-Uses the public API (no auth required).
+WallStreetCN Sensor - 从华尔街见闻获取最新财经新闻。
+使用公开 API（无需认证）。
 """
 import sys
 import json
+import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-try:
-    import httpx
-except ImportError:
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "httpx", "-q"])
-    import httpx
+import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -27,7 +25,7 @@ class WSCNArticle:
 
 def fetch_wallstreetcn(limit: int = 10) -> List[WSCNArticle]:
     """Fetch latest news from WallStreetCN public API."""
-    print(f"  -> Fetching latest {limit} items from WallStreetCN...")
+    logger.info("正在获取华尔街见闻前 %d 条新闻...", limit)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
@@ -66,7 +64,7 @@ def fetch_wallstreetcn(limit: int = 10) -> List[WSCNArticle]:
         if articles:
             return articles
     except Exception as e:
-        print(f"    Live feed API failed: {e}")
+        logger.warning("实时快讯 API 失败: %s", e)
 
     # Fallback: articles API
     try:
@@ -92,7 +90,7 @@ def fetch_wallstreetcn(limit: int = 10) -> List[WSCNArticle]:
                 published=str(pub),
             ))
     except Exception as e:
-        print(f"    Articles API also failed: {e}")
+        logger.warning("文章 API 也失败了: %s", e)
 
     return articles
 

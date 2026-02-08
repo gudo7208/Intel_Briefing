@@ -1,18 +1,16 @@
 """
-36Kr Sensor - Fetches latest tech/business news from 36Kr.
-Uses the public newsflash API (no auth required).
+36Kr Sensor - 从36Kr获取最新科技/商业新闻。
+使用公开 API（无需认证）。
 """
 import sys
 import json
+import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-try:
-    import httpx
-except ImportError:
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "httpx", "-q"])
-    import httpx
+import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -27,7 +25,7 @@ class KrArticle:
 
 def fetch_36kr(limit: int = 10) -> List[KrArticle]:
     """Fetch latest newsflash items from 36Kr public API."""
-    print(f"  -> Fetching latest {limit} items from 36Kr...")
+    logger.info("正在获取 36Kr 前 %d 条新闻...", limit)
 
     api_url = "https://gateway.36kr.com/api/mis/nav/home/nav/rank/hot"
     headers = {
@@ -60,7 +58,7 @@ def fetch_36kr(limit: int = 10) -> List[KrArticle]:
         if articles:
             return articles
     except Exception as e:
-        print(f"    Hot rank API failed: {e}")
+        logger.warning("热榜 API 失败: %s", e)
 
     # Fallback: newsflash API
     try:
@@ -88,7 +86,7 @@ def fetch_36kr(limit: int = 10) -> List[KrArticle]:
                 published=pub,
             ))
     except Exception as e:
-        print(f"    Newsflash API also failed: {e}")
+        logger.warning("快讯 API 也失败了: %s", e)
 
     return articles
 

@@ -6,12 +6,9 @@ from typing import List, Optional
 import datetime
 import re
 import sys
+import logging
 
-# Ensure UTF-8 output (may fail on some Linux systems)
-try:
-    sys.stdout.reconfigure(encoding='utf-8')
-except (AttributeError, OSError):
-    pass
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Lead:
@@ -59,7 +56,7 @@ class V2EXRadar:
         self.client = httpx.Client(timeout=15.0)
 
     def fetch_leads(self, days: int = 1) -> List[Lead]:
-        print(f"📡 Scanning V2EX for Leads (Past {days} days)...")
+        logger.info("正在扫描 V2EX 线索（过去 %d 天）...", days)
         all_leads = []
         
         for category, url in self.RSS_FEEDS.items():
@@ -104,12 +101,12 @@ class V2EXRadar:
                         all_leads.append(lead)
 
             except Exception as e:
-                print(f"  ❌ Error fetching {category}: {e}")
+                logger.warning("获取 %s 失败: %s", category, e)
         
         # Sort by Desperation Score (High to Low)
         all_leads.sort(key=lambda x: x.desperation_score, reverse=True)
         
-        print(f"✅ Found {len(all_leads)} potential leads from V2EX.")
+        logger.info("从 V2EX 找到 %d 条潜在线索", len(all_leads))
         return all_leads
 
     def _analyze_content(self, title: str, content: str) -> (List[str], int):

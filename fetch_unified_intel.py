@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Unified Intelligence Fetcher - Operation Wide-Net V2
-Uses ALL local sensors for cross-platform intelligence gathering.
-Outputs a magazine-style Morning Report for Revenue Architect.
-
-Sources (all local):
-- HN, GitHub, 36Kr, WallStreetCN, V2EX
-- Product Hunt, ArXiv, X (cache), XHS (manual directives)
+Unified Intelligence Fetcher - 统一情报获取引擎 V2
+使用所有本地传感器进行跨平台情报收集。
+输出杂志风格的晨报供 Revenue Architect 使用。
 """
 
 import sys
 import os
 import json
+import logging
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger(__name__)
 
 # --- Path Setup ---
 # Add local src for sensors and utils
@@ -21,79 +21,34 @@ LOCAL_SRC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
 if LOCAL_SRC_PATH not in sys.path:
     sys.path.insert(0, LOCAL_SRC_PATH)
 
-# --- Imports: Local Sensors (replacing external news-aggregator-skill) ---
-try:
-    from sensors.hacker_news import fetch_top_stories as _fetch_hn
-    HN_AVAILABLE = True
-except ImportError:
-    HN_AVAILABLE = False
-    print("[WARN] Hacker News sensor not available, skipping.")
+# --- 传感器导入（安全导入，失败时记录日志） ---
+def _safe_import(module_path, name):
+    """安全导入模块，失败时记录警告"""
+    try:
+        mod = __import__(module_path, fromlist=[name])
+        return getattr(mod, name), True
+    except ImportError:
+        logger.warning("%s 传感器不可用，跳过", name)
+        return None, False
 
-try:
-    from sensors.github_trending import fetch_trending as _fetch_github
-    GH_AVAILABLE = True
-except ImportError:
-    GH_AVAILABLE = False
-    print("[WARN] GitHub Trending sensor not available, skipping.")
+_fetch_hn, HN_AVAILABLE = _safe_import("sensors.hacker_news", "fetch_top_stories")
+_fetch_github, GH_AVAILABLE = _safe_import("sensors.github_trending", "fetch_trending")
+_fetch_36kr, KR_AVAILABLE = _safe_import("sensors.kr36_sensor", "fetch_36kr")
+_fetch_wscn, WSCN_AVAILABLE = _safe_import("sensors.wallstreetcn_sensor", "fetch_wallstreetcn")
+V2EXRadar, V2EX_AVAILABLE = _safe_import("sensors.v2ex_radar", "V2EXRadar")
+fetch_trending_products, PH_AVAILABLE = _safe_import("sensors.product_hunt", "fetch_trending_products")
+fetch_ai_papers, ARXIV_AVAILABLE = _safe_import("sensors.arxiv_ai", "fetch_ai_papers")
+fetch_grok_intel, GROK_AVAILABLE = _safe_import("sensors.x_grok_sensor", "fetch_grok_intel")
+XHSRadar, XHS_AVAILABLE = _safe_import("sensors.xhs_radar", "XHSRadar")
 
-try:
-    from sensors.kr36_sensor import fetch_36kr as _fetch_36kr
-    KR_AVAILABLE = True
-except ImportError:
-    KR_AVAILABLE = False
-    print("[WARN] 36Kr sensor not available, skipping.")
-
-try:
-    from sensors.wallstreetcn_sensor import fetch_wallstreetcn as _fetch_wscn
-    WSCN_AVAILABLE = True
-except ImportError:
-    WSCN_AVAILABLE = False
-    print("[WARN] WallStreetCN sensor not available, skipping.")
-
-try:
-    from sensors.v2ex_radar import V2EXRadar
-    V2EX_AVAILABLE = True
-except ImportError:
-    V2EX_AVAILABLE = False
-    print("[WARN] V2EX sensor not available, skipping.")
-
-# --- Imports: Local Sensors ---
-try:
-    from sensors.product_hunt import fetch_trending_products
-    PH_AVAILABLE = True
-except ImportError:
-    PH_AVAILABLE = False
-    print("[WARN] Product Hunt sensor not available, skipping.")
-
-try:
-    from sensors.arxiv_ai import fetch_ai_papers
-    ARXIV_AVAILABLE = True
-except ImportError:
-    ARXIV_AVAILABLE = False
-    print("[WARN] ArXiv sensor not available, skipping.")
-
-try:
-    from sensors.x_grok_sensor import fetch_grok_intel
-    GROK_AVAILABLE = True
-except ImportError:
-    GROK_AVAILABLE = False
-    print("[WARN] Grok (X/Twitter) sensor not available, skipping.")
-
-try:
-    from sensors.xhs_radar import XHSRadar
-    XHS_AVAILABLE = True
-except ImportError:
-    XHS_AVAILABLE = False
-    print("[WARN] XHS (Xiaohongshu) sensor not available, skipping.")
-
-# --- Anti-Hallucination: Link Verifier ---
+# --- 反幻觉：链接验证器 ---
 try:
     from utils.verifier import verify_link
     import re
     VERIFIER_AVAILABLE = True
 except ImportError:
     VERIFIER_AVAILABLE = False
-    print("[WARN] Link verifier not available, skipping hallucination checks.")
+    logger.warning("链接验证器不可用，跳过幻觉检查")
 
 
 def validate_grok_report(markdown_content: str) -> str:
@@ -111,7 +66,7 @@ def validate_grok_report(markdown_content: str) -> str:
     if not matches:
         return markdown_content
     
-    print(f"  [*] Validating {len(matches)} links from Grok output...")
+    logger.info("正在验证 Grok 输出中的 %d 个链接...", len(matches))
     validated_content = markdown_content
     
     for title, url in matches:
@@ -126,194 +81,200 @@ def validate_grok_report(markdown_content: str) -> str:
             old_link = f"[{title}]({url})"
             new_link = f"[{title}]({url}) **(⚠️ 链接验证失败/404)**"
             validated_content = validated_content.replace(old_link, new_link)
-            print(f"    ❌ INVALID: {url}")
+            logger.warning("无效链接: %s", url)
         else:
-            print(f"    ✅ Valid: {url[:50]}...")
+            logger.debug("有效链接: %s...", url[:50])
     
     return validated_content
 
 
+def _fetch_hn_task(limit):
+    """HN 获取任务"""
+    results = []
+    stories = _fetch_hn(limit=limit)
+    for s in stories:
+        results.append({
+            "title": s.title,
+            "url": s.url or s.hn_url,
+            "heat": f"{s.score} points",
+            "time": f"{s.descendants} comments",
+            "category": "Hacker News",
+        })
+    return "tech_trends", results
+
+
+def _fetch_github_task(limit):
+    """GitHub 获取任务"""
+    results = []
+    trends = _fetch_github()
+    for t in trends[:limit]:
+        results.append({
+            "title": t.name,
+            "url": t.url,
+            "heat": f"{t.stars} stars",
+            "time": t.created_at[:10] if t.created_at else "",
+            "category": "GitHub",
+        })
+    return "tech_trends", results
+
+
+def _fetch_36kr_task(limit):
+    """36Kr 获取任务"""
+    results = []
+    items = _fetch_36kr(limit=limit)
+    for a in items:
+        results.append({
+            "title": a.title, "url": a.url,
+            "time": a.published, "category": "36Kr",
+        })
+    return "capital_flow", results
+
+
+def _fetch_wscn_task(limit):
+    """华尔街见闻获取任务"""
+    results = []
+    items = _fetch_wscn(limit=limit)
+    for a in items:
+        results.append({
+            "title": a.title, "url": a.url,
+            "time": a.published, "category": "WallStreetCN",
+        })
+    return "capital_flow", results
+
+
+def _fetch_v2ex_task(limit):
+    """V2EX 获取任务"""
+    results = []
+    radar = V2EXRadar()
+    leads = radar.fetch_leads(days=1)
+    for lead in leads[:limit]:
+        results.append({
+            "title": lead.title, "url": lead.url,
+            "heat": f"Score: {lead.desperation_score}",
+            "category": "V2EX",
+        })
+    return "community", results
+
+
+def _fetch_ph_task(limit):
+    """Product Hunt 获取任务"""
+    results = []
+    products = fetch_trending_products(limit)
+    for p in products:
+        results.append({
+            "source": "Product Hunt",
+            "category": "Product Hunt",
+            "title": p.name,
+            "url": p.url,
+            "heat": f"{p.votes_count} votes",
+            "time": "Today",
+            "tagline": p.tagline,
+            "grok_review": None,
+        })
+    return "product_gems", results
+
+
+def _fetch_arxiv_task(limit):
+    """ArXiv 获取任务"""
+    results = []
+    papers = fetch_ai_papers(limit=limit)
+    for p in papers:
+        results.append({
+            "source": "ArXiv",
+            "category": "ArXiv",
+            "title": p.title,
+            "url": p.url,
+            "authors": ", ".join(p.authors[:2]),
+            "time": p.published,
+            "categories": ", ".join(p.categories[:2]),
+        })
+    return "research", results
+
+
+def _fetch_grok_task(_limit):
+    """Grok/X 获取任务"""
+    results = []
+    report = fetch_grok_intel("AI Agents, LLM, Tech Startups")
+    if report and "Error" not in report:
+        validated = validate_grok_report(report)
+        results.append({
+            "source": "X (via Grok)",
+            "category": "X/Grok",
+            "content": validated,
+            "type": "markdown_report",
+        })
+        logger.info("Grok 返回 X 情报报告（链接已验证）")
+    else:
+        logger.warning("Grok 未返回数据或出错")
+    return "social", results
+
+
+def _fetch_xhs_task(_limit):
+    """小红书获取任务"""
+    results = []
+    radar = XHSRadar()
+    leads = radar.fetch_leads()
+    for lead in leads[:8]:
+        results.append({
+            "source": "小红书",
+            "category": "XHS",
+            "title": lead.title,
+            "url": lead.url,
+            "summary": lead.summary,
+        })
+    return "xhs_directives", results
+
+
 def fetch_all_sources(limit_per_source: int = 10) -> dict:
-    """Fetch from all configured sources."""
+    """使用 ThreadPoolExecutor 并行获取所有数据源"""
     intel = {
-        "tech_trends": [],      # HN + GitHub
-        "capital_flow": [],     # 36Kr + WallStreetCN
-        "product_gems": [],     # Product Hunt
-        "community": [],        # V2EX
-        "research": [],         # ArXiv
-        "social": [],           # X (Twitter)
-        "xhs_directives": []    # XHS (manual search links)
+        "tech_trends": [],
+        "capital_flow": [],
+        "product_gems": [],
+        "community": [],
+        "research": [],
+        "social": [],
+        "xhs_directives": [],
     }
-    
-    # ========== LOCAL SENSORS: Core Sources ==========
-    if HN_AVAILABLE:
-        print("[*] Fetching Hacker News...")
-        try:
-            hn_stories = _fetch_hn(limit=limit_per_source)
-            for s in hn_stories:
-                intel["tech_trends"].append({
-                    "title": s.title,
-                    "url": s.url or s.hn_url,
-                    "heat": f"{s.score} points",
-                    "time": f"{s.descendants} comments",
-                    "category": "Hacker News",
-                })
-        except Exception as e:
-            print(f"  [WARN] HN failed: {e}")
 
-    if GH_AVAILABLE:
-        print("[*] Fetching GitHub Trending...")
-        try:
-            gh_trends = _fetch_github()
-            for t in gh_trends[:limit_per_source]:
-                intel["tech_trends"].append({
-                    "title": t.name,
-                    "url": t.url,
-                    "heat": f"{t.stars} stars",
-                    "time": t.created_at[:10] if t.created_at else "",
-                    "category": "GitHub",
-                })
-        except Exception as e:
-            print(f"  [WARN] GitHub failed: {e}")
+    # 构建任务列表：(任务函数, 名称, 是否可用)
+    tasks = [
+        (_fetch_hn_task, "Hacker News", HN_AVAILABLE),
+        (_fetch_github_task, "GitHub", GH_AVAILABLE),
+        (_fetch_36kr_task, "36Kr", KR_AVAILABLE),
+        (_fetch_wscn_task, "WallStreetCN", WSCN_AVAILABLE),
+        (_fetch_v2ex_task, "V2EX", V2EX_AVAILABLE),
+        (_fetch_ph_task, "Product Hunt", PH_AVAILABLE),
+        (_fetch_arxiv_task, "ArXiv", ARXIV_AVAILABLE),
+        (_fetch_grok_task, "Grok/X", GROK_AVAILABLE),
+        (_fetch_xhs_task, "XHS", XHS_AVAILABLE),
+    ]
 
-    if KR_AVAILABLE:
-        print("[*] Fetching 36Kr...")
-        try:
-            kr_items = _fetch_36kr(limit=limit_per_source)
-            for a in kr_items:
-                intel["capital_flow"].append({
-                    "title": a.title,
-                    "url": a.url,
-                    "time": a.published,
-                    "category": "36Kr",
-                })
-        except Exception as e:
-            print(f"  [WARN] 36Kr failed: {e}")
+    available_tasks = [
+        (fn, name) for fn, name, avail in tasks if avail
+    ]
 
-    if WSCN_AVAILABLE:
-        print("[*] Fetching WallStreetCN...")
-        try:
-            ws_items = _fetch_wscn(limit=limit_per_source)
-            for a in ws_items:
-                intel["capital_flow"].append({
-                    "title": a.title,
-                    "url": a.url,
-                    "time": a.published,
-                    "category": "WallStreetCN",
-                })
-        except Exception as e:
-            print(f"  [WARN] WallStreetCN failed: {e}")
+    logger.info(
+        "并行获取 %d 个数据源: %s",
+        len(available_tasks),
+        ", ".join(n for _, n in available_tasks),
+    )
 
-    if V2EX_AVAILABLE:
-        print("[*] Fetching V2EX Hot...")
-        try:
-            v2_radar = V2EXRadar()
-            v2_leads = v2_radar.fetch_leads(days=1)
-            for lead in v2_leads[:limit_per_source]:
-                intel["community"].append({
-                    "title": lead.title,
-                    "url": lead.url,
-                    "heat": f"Score: {lead.desperation_score}",
-                    "category": "V2EX",
-                })
-        except Exception as e:
-            print(f"  [WARN] V2EX failed: {e}")
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        future_map = {
+            executor.submit(fn, limit_per_source): name
+            for fn, name in available_tasks
+        }
 
-    # ========== LOCAL SENSORS: Extended ==========
-    if PH_AVAILABLE:
-        print("[*] Fetching Product Hunt...")
-        try:
-            ph_products = fetch_trending_products(limit_per_source)
-            for i, p in enumerate(ph_products):
-                product_data = {
-                    "source": "Product Hunt",
-                    "category": "Product Hunt",
-                    "title": p.name,
-                    "url": p.url,
-                    "heat": f"{p.votes_count} votes",
-                    "time": "Today",
-                    "tagline": p.tagline,
-                    "grok_review": None  # Will be filled for top 3
-                }
-                
-                # Grok Sentiment Verification for Top 3 Products
-                if GROK_AVAILABLE and i < 3:
-                    print(f"  [*] Grok 舆情核查: {p.name}...")
-                    try:
-                        grok_prompt = f"""You are an X (Twitter) analyst. Search X for the product "{p.name}" with tagline "{p.tagline}".
-Provide a market sentiment summary in Simplified Chinese (简体中文), including:
-1. Overall sentiment (positive/negative/mixed)
-2. 3-5 key findings from real users/developers/founders on X
-3. Pros and Cons
+        for future in as_completed(future_map):
+            name = future_map[future]
+            try:
+                category, results = future.result()
+                intel[category].extend(results)
+                logger.info("%s 完成，获取 %d 条", name, len(results))
+            except Exception as e:
+                logger.warning("%s 失败: %s", name, e)
 
-Format: Use numbered list. For each finding, mention who said it (e.g., @username or role like "a developer").
-Keep it concise but informative. If no data found, say "暂无X平台讨论数据"."""
-                        grok_result = fetch_grok_intel(f"PH: {p.name}", override_prompt=grok_prompt)
-                        if grok_result and "Error" not in grok_result:
-                            product_data["grok_review"] = grok_result
-                            print(f"    ✅ Grok returned sentiment for {p.name}")
-                        else:
-                            print(f"    ⚠️ Grok returned no data for {p.name}")
-                    except Exception as e:
-                        print(f"    ⚠️ Grok failed for {p.name}: {e}")
-                
-                intel["product_gems"].append(product_data)
-        except Exception as e:
-            print(f"  [WARN] Product Hunt failed: {e}")
-    
-    if ARXIV_AVAILABLE:
-        print("[*] Fetching ArXiv AI papers...")
-        try:
-            papers = fetch_ai_papers(limit=limit_per_source)
-            for p in papers:
-                intel["research"].append({
-                    "source": "ArXiv",
-                    "category": "ArXiv",
-                    "title": p.title,
-                    "url": p.url,
-                    "authors": ", ".join(p.authors[:2]),
-                    "time": p.published,
-                    "categories": ", ".join(p.categories[:2])
-                })
-        except Exception as e:
-            print(f"  [WARN] ArXiv failed: {e}")
-    
-    if GROK_AVAILABLE:
-        print("[*] Fetching X (Twitter) via Grok API...")
-        try:
-            # Query Grok for AI/Tech trends on X
-            grok_report = fetch_grok_intel("AI Agents, LLM, Tech Startups")
-            if grok_report and "Error" not in grok_report:
-                # Anti-Hallucination: Validate all links in Grok's output
-                validated_report = validate_grok_report(grok_report)
-                intel["social"].append({
-                    "source": "X (via Grok)",
-                    "category": "X/Grok",
-                    "content": validated_report,
-                    "type": "markdown_report"
-                })
-                print("  [INFO] Grok returned X intelligence report (links validated).")
-            else:
-                print(f"  [WARN] Grok returned no data or error.")
-        except Exception as e:
-            print(f"  [WARN] Grok API failed: {e}")
-    
-    if XHS_AVAILABLE:
-        print("[*] Generating XHS search directives...")
-        try:
-            radar = XHSRadar()
-            leads = radar.fetch_leads()
-            for lead in leads[:8]:  # Top 8 search queries
-                intel["xhs_directives"].append({
-                    "source": "小红书",
-                    "category": "XHS",
-                    "title": lead.title,
-                    "url": lead.url,
-                    "summary": lead.summary
-                })
-        except Exception as e:
-            print(f"  [WARN] XHS failed: {e}")
-    
     return intel
 
 
@@ -470,20 +431,18 @@ def generate_report(intel: dict, date_str: str) -> str:
 
 def main():
     import argparse
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Unified Intel Fetcher V2")
     parser.add_argument("--limit", type=int, default=10, help="Items per source")
     parser.add_argument("--test", action="store_true", help="Test mode (1 item per source)")
     parser.add_argument("--output", type=str, help="Custom output path")
     args = parser.parse_args()
-    
+
     limit = 1 if args.test else args.limit
     date_str = datetime.now().strftime("%Y-%m-%d")
-    
-    print(f"\n{'='*50}")
-    print(f"  Unified Intelligence Fetcher V2")
-    print(f"  Date: {date_str} | Limit: {limit}/source")
-    print(f"  Sources: HN, GitHub, 36Kr, WS, V2EX, PH, ArXiv, X, XHS")
-    print(f"{'='*50}\n")
+
+    logger.info("统一情报获取引擎 V2 启动")
+    logger.info("日期: %s | 每源限制: %d", date_str, limit)
     
     # Fetch
     intel = fetch_all_sources(limit_per_source=limit)

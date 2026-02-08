@@ -7,12 +7,9 @@ import sys
 import re
 import time
 import random
+import logging
 
-# Ensure UTF-8 output (may fail on some Linux systems)
-try:
-    sys.stdout.reconfigure(encoding='utf-8')
-except (AttributeError, OSError):
-    pass
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ChromeAssetOpportunity:
@@ -47,11 +44,11 @@ class ChromeRadar:
         self.client = httpx.Client(headers=self.headers, timeout=20.0, follow_redirects=True)
 
     def scan_opportunities(self, limit: int = 3) -> List[ChromeAssetOpportunity]:
-        print(f"🛒 Scanning Chrome Web Store for 'Ugly Cash Cows'...")
+        logger.info("正在扫描 Chrome Web Store...")
         opportunities = []
         
         for cat_name, url in self.CATEGORIES.items():
-            print(f"  - Scanning category: {cat_name}...")
+            logger.info("正在扫描分类: %s...", cat_name)
             try:
                 response = self.client.get(url)
                 soup = BeautifulSoup(response.content, "html.parser")
@@ -62,7 +59,7 @@ class ChromeRadar:
                 # Rating: span.V979hc
                 
                 cards = soup.select("a.UvhDdd")
-                print(f"    Found {len(cards)} items.")
+                logger.info("找到 %d 个项目", len(cards))
                 
                 for card in cards:
                     try:
@@ -86,7 +83,7 @@ class ChromeRadar:
                         if rating > self.MAX_RATING:
                             continue
                             
-                        print(f"    🔍 Checking weak target: {name} ({rating}⭐)...")
+                        logger.info("检查弱目标: %s (%.1f 星)...", name, rating)
                         
                         # Deep Dive: Check User Count on Detail Page
                         user_count_str, user_cnt, kill_shot = self._inspect_detail_page(full_url)
@@ -103,7 +100,7 @@ class ChromeRadar:
                                 kill_shot=kill_shot
                             )
                             opportunities.append(opp)
-                            print(f"    💎 FOUND GEM: {name} ({user_count_str} users, {rating} stars)")
+                            logger.info("发现目标: %s (%s 用户, %.1f 星)", name, user_count_str, rating)
                             
                             if len(opportunities) >= limit:
                                 return opportunities
@@ -112,11 +109,11 @@ class ChromeRadar:
                         time.sleep(random.uniform(0.5, 1.5))
                         
                     except Exception as e:
-                        print(f"    ⚠️ Error parsing card: {e}")
+                        logger.warning("解析卡片出错: %s", e)
                         continue
                         
             except Exception as e:
-                print(f"  ❌ Error scanning category {cat_name}: {e}")
+                logger.error("扫描分类 %s 出错: %s", cat_name, e)
                 
         return opportunities
 

@@ -1,6 +1,8 @@
 
 import httpx
-import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 def verify_link(url: str, timeout: float = 5.0) -> bool:
     """
@@ -27,5 +29,5 @@ def verify_link(url: str, timeout: float = 5.0) -> bool:
         return response.status_code == 200
         
     except Exception as e:
-        print(f"  ⚠️ Link Verification Error ({url}): {e}")
+        logger.warning("链接验证错误 (%s): %s", url, e)
         return False

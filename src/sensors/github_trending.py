@@ -1,20 +1,16 @@
 """
-Commercial Agent - GitHub Trending Sensor (GraphQL API Version)
-
-Uses GitHub GraphQL API to find high-potential repositories.
-Focuses on "Breakout" repos: created recently with high star velocity.
-
-Dependencies: httpx (or requests)
-Usage: python github_trending.py [language]
+GitHub Trending Sensor - 使用 GitHub GraphQL API 查找高潜力仓库。
+聚焦"爆发型"仓库：近期创建且 star 增速快。
 """
 
 import os
 import sys
+import logging
 import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 
-# Use httpx if available, fall back to requests
+# 优先使用 httpx，回退到 requests
 try:
     import httpx
     HTTP_CLIENT = "httpx"
@@ -24,6 +20,8 @@ except ImportError:
         HTTP_CLIENT = "requests"
     except ImportError:
         HTTP_CLIENT = None
+
+logger = logging.getLogger(__name__)
 
 GITHUB_API_URL = "https://api.github.com/graphql"
 
@@ -84,11 +82,11 @@ def fetch_trending(language: Optional[str] = None) -> list[GitHubTrend]:
     """
     token = load_env_token()
     if not token:
-        print("ERROR: GITHUB_TOKEN not found in .env or environment variables.")
+        logger.error("未找到 GITHUB_TOKEN")
         return []
 
     if HTTP_CLIENT is None:
-        print("ERROR: No HTTP client available. Install httpx or requests.")
+        logger.error("无可用 HTTP 客户端，请安装 httpx 或 requests")
         return []
 
     # Calculate date 7 days ago
@@ -140,26 +138,26 @@ def fetch_trending(language: Optional[str] = None) -> list[GitHubTrend]:
     }
     
     try:
-        print(f"  → Sending GraphQL query to GitHub ({search_query})...")
+        logger.info("正在发送 GraphQL 查询到 GitHub (%s)...", search_query)
         if HTTP_CLIENT == "httpx":
             response = httpx.post(GITHUB_API_URL, json=payload, headers=headers, timeout=30.0)
         else:
             response = requests.post(GITHUB_API_URL, json=payload, headers=headers, timeout=30)
         
         if response.status_code != 200:
-            print(f"ERROR: API returned {response.status_code}")
-            print(response.text)
+            logger.error("API 返回 %d", response.status_code)
+            logger.debug(response.text)
             return []
             
         data = response.json()
         if "errors" in data:
-            print(f"ERROR: GraphQL errors: {data['errors']}")
+            logger.error("GraphQL 错误: %s", data['errors'])
             return []
 
         return _parse_graphql_response(data)
 
     except Exception as e:
-        print(f"ERROR: Request failed: {e}")
+        logger.error("请求失败: %s", e)
         return []
 
 def _parse_graphql_response(data: dict) -> list[GitHubTrend]:
@@ -208,7 +206,7 @@ def trigger_ghostwriter(trend: GitHubTrend):
     import subprocess
     import tempfile
     
-    print(f"  → ✍️ Triggering Curator (Analyst) for {trend.name}...")
+    logger.info("正在触发 Curator 分析 %s...", trend.name)
     
     # Create temp file for readme context
     with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix='.txt') as f:
@@ -235,7 +233,7 @@ def trigger_ghostwriter(trend: GitHubTrend):
         subprocess.run(cmd, check=True)
         
     except Exception as e:
-        print(f"  ❌ Curator failed: {e}")
+        logger.error("Curator 失败: %s", e)
     finally:
         os.unlink(readme_path)
 

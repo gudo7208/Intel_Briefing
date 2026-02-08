@@ -2,8 +2,11 @@ import os
 import sys
 import datetime
 import json
+import logging
 import httpx
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Force UTF-8 stdout (may fail on some Linux systems)
 try:
@@ -26,10 +29,10 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
     Returns the markdown report.
     """
     if not XAI_API_KEY:
-        print("❌ Error: XAI_API_KEY not found in .env files.")
+        logger.error("XAI_API_KEY 未在 .env 中找到")
         return "Error: No API Key."
 
-    print(f"🦅 Grok Sensor: contacting xAI for '{query}'...")
+    logger.info("Grok Sensor: 正在联系 xAI 查询 '%s'...", query)
 
     headers = {
         "Content-Type": "application/json",
@@ -80,20 +83,18 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
         data = response.json()
         content = data['choices'][0]['message']['content']
         
-        print("\n" + "="*60)
-        print(f"  🦅 Grok Intelligence Report: {query}")
-        print("="*60 + "\n")
-        print(content)
+        logger.info("Grok 情报报告: %s", query)
+        logger.debug(content)
         
         return content
         
     except httpx.HTTPStatusError as e:
-        err = f"⚠️ API Error: {e.response.status_code} - {e.response.text}"
-        print(err)
+        err = f"API 错误: {e.response.status_code}"
+        logger.error(err)
         return err
     except Exception as e:
-        err = f"⚠️ Connection Error: {e}"
-        print(err)
+        err = f"连接错误: {e}"
+        logger.error(err)
         return err
 
 if __name__ == "__main__":
