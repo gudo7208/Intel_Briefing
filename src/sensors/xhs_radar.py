@@ -1,11 +1,13 @@
 
 import datetime
+import logging
 from dataclasses import dataclass
 from typing import List, Tuple
 import sys
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+from src.sensors.base import BaseSensor, SensorResult
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Lead:
@@ -51,7 +53,7 @@ class XHSRadar:
         Returns 'Manual Action' leads pointing to search results.
         And instructions on how to scrape.
         """
-        print(f"📕 Preparing XHS Radar (Past {days} days)...")
+        logger.info("正在准备小红书雷达（过去 %d 天）...", days)
         leads = []
         
         # 1. Generate Manual Link Leads
@@ -71,7 +73,7 @@ class XHSRadar:
                 desperation_score=50 # Base score to ensure it shows up
             ))
             
-        print(f"✅ Generated {len(leads)} search directives for XHS.")
+        logger.info("已生成 %d 条小红书搜索指令", len(leads))
         return leads
 
     def get_browser_js_snippet(self) -> str:
@@ -108,11 +110,43 @@ class XHSRadar:
         })();
         """
 
+class XHSSensor(BaseSensor):
+    """小红书传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        return "XHS"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        radar = XHSRadar()
+        leads = radar.fetch_leads()
+        return [
+            SensorResult(
+                title=lead.title,
+                url=lead.url,
+                source="小红书",
+                category="xhs_directives",
+                heat=f"Score: {lead.desperation_score}",
+                timestamp=lead.posted_date,
+                summary=lead.summary[:100],
+                metadata={"tags": lead.tags},
+            )
+            for lead in leads[:limit]
+        ]
+
+
 if __name__ == "__main__":
-    radar = XHSRadar()
-    leads = radar.fetch_leads()
-    print("--- Leads ---")
-    for l in leads:
-        print(f"{l.title} -> {l.url}")
-    print("\n--- JS Snippet ---")
-    print(radar.get_browser_js_snippet())
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    sensor = XHSSensor()
+    results = sensor.fetch_with_cache()
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            print(f"   {r.url}")
+            print()
+    else:
+        print("No XHS leads found.")

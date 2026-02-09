@@ -22,7 +22,7 @@ description: The "Commander" skill that transforms intelligence into executable 
 或者更具体：
 
 ```
-读取 d:\Intel_Briefing\reports\daily_briefings\Morning_Report_2026-01-21.md，
+读取 reports/daily_briefings/Morning_Report_2026-01-21.md，
 按照 Revenue Architect 的思路分析一下有什么可执行的项目
 ```
 
@@ -44,8 +44,8 @@ Agent 会：
 
 如果你不想开对话，可以用脚本：
 
-```powershell
-python d:\Intel_Briefing\run_revenue_architect.py
+```bash
+python3 run_revenue_architect.py
 ```
 
 输出：`reports/opportunities/YYYY-MM-DD_Mission_Plan.md`

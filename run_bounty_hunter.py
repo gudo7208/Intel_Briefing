@@ -5,19 +5,22 @@ import datetime
 from typing import List
 import argparse
 
-# Add sensors path
-sys.path.append(os.path.join(os.path.dirname(__file__), "src", "sensors"))
+# Add src path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 try:
-    from v2ex_radar import V2EXRadar, Lead
-    from chrome_radar import ChromeRadar, ChromeAssetOpportunity
-    from xhs_radar import XHSRadar # New Import
+    from sensors.v2ex_radar import V2EXRadar, Lead
+    from sensors.chrome_radar import ChromeRadar, ChromeAssetOpportunity
+    from sensors.xhs_radar import XHSRadar
 except ImportError as e:
     print(f"❌ Error importing sensors: {e}")
     sys.exit(1)
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+# Ensure UTF-8 output (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 def generate_report(leads: List[Lead], xhs_leads: List[Lead], opportunities: List[ChromeAssetOpportunity], js_snippet: str, filename: str = "Daily_Hit_List.md"):
     print(f"📝 Generating Hit List Report: {filename}...")

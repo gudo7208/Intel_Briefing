@@ -1,14 +1,15 @@
-
 import httpx
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import datetime
 import re
 import sys
+import logging
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+from src.sensors.base import BaseSensor, SensorResult
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Lead:
@@ -52,17 +53,14 @@ class V2EXRadar:
         "Rust", "图像", "视觉", "识别", "抠图", "Automation", "Bot"
     ]
 
-    def __init__(self):
-        self.client = httpx.Client(timeout=15.0)
-
     def fetch_leads(self, days: int = 1) -> List[Lead]:
-        print(f"📡 Scanning V2EX for Leads (Past {days} days)...")
+        logger.info("正在扫描 V2EX 线索（过去 %d 天）...", days)
         all_leads = []
-        
-        for category, url in self.RSS_FEEDS.items():
+
+        with httpx.Client(timeout=15.0) as client:
+          for category, url in self.RSS_FEEDS.items():
             try:
-                # print(f"  - Checking {category}...")
-                response = self.client.get(url)
+                response = client.get(url)
                 response.raise_for_status()
                 
                 # Parse XML
@@ -101,15 +99,15 @@ class V2EXRadar:
                         all_leads.append(lead)
 
             except Exception as e:
-                print(f"  ❌ Error fetching {category}: {e}")
+                logger.warning("获取 %s 失败: %s", category, e)
         
         # Sort by Desperation Score (High to Low)
         all_leads.sort(key=lambda x: x.desperation_score, reverse=True)
         
-        print(f"✅ Found {len(all_leads)} potential leads from V2EX.")
+        logger.info("从 V2EX 找到 %d 条潜在线索", len(all_leads))
         return all_leads
 
-    def _analyze_content(self, title: str, content: str) -> (List[str], int):
+    def _analyze_content(self, title: str, content: str) -> Tuple[List[str], int]:
         text = (title + content).lower()
         found_tags = []
         score = 0
@@ -149,10 +147,43 @@ class V2EXRadar:
         clean = re.sub('<[^<]+?>', '', html_content)
         return clean[:200] + "..." if len(clean) > 200 else clean
 
+class V2EXSensor(BaseSensor):
+    """V2EX 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        return "V2EX"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        radar = V2EXRadar()
+        leads = radar.fetch_leads(days=1)
+        return [
+            SensorResult(
+                title=lead.title,
+                url=lead.url,
+                source="V2EX",
+                category="community",
+                heat=f"Score: {lead.desperation_score}",
+                timestamp=lead.posted_date,
+                summary=lead.summary[:100],
+                metadata={"tags": lead.tags},
+            )
+            for lead in leads[:limit]
+        ]
+
+
 if __name__ == "__main__":
-    radar = V2EXRadar()
-    leads = radar.fetch_leads(days=3)
-    for lead in leads:
-        print(f"[Score: {lead.desperation_score}] {lead.tags} {lead.title}")
-        print(f"   {lead.url}")
-        print("-" * 40)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    sensor = V2EXSensor()
+    results = sensor.fetch_with_cache()
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"[{r.heat}] {r.title}")
+            print(f"   {r.url}")
+            print()
+    else:
+        print("No V2EX leads found.")

@@ -2,36 +2,33 @@ import os
 import sys
 import datetime
 import json
-import httpx
+import logging
 from dotenv import load_dotenv
+from typing import List
 
-# Force UTF-8 stdout for Windows
-sys.stdout.reconfigure(encoding='utf-8')
+from src.sensors.base import BaseSensor, SensorResult
+from src.llm.factory import get_llm_provider
+
+logger = logging.getLogger(__name__)
+
+# Force UTF-8 stdout (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 # Load environment variables
 load_dotenv()
 
-# Configuration
+# 保留 XAI_API_KEY 用于 is_available() 检查
 XAI_API_KEY = os.getenv("XAI_API_KEY")
-# Default to official endpoint, but allow override for Relay Services (中转站)
-XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1/chat/completions")
-MODEL_NAME = os.getenv("XAI_MODEL", "grok-beta")  # Relay users: set to 'grok-3' or 'grok-4'
 
 def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
-    """
-    Fetch intelligence from X using xAI's Grok API.
-    Returns the markdown report.
-    """
-    if not XAI_API_KEY:
-        print("❌ Error: XAI_API_KEY not found in .env files.")
-        return "Error: No API Key."
+    """通过 LLM 抽象层获取情报，返回 markdown 报告。
 
-    print(f"🦅 Grok Sensor: contacting xAI for '{query}'...")
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {XAI_API_KEY}"
-    }
+    已重构为使用统一的 LLMProvider 接口，不再直接调用 httpx。
+    """
+    logger.info("Grok Sensor: 正在查询 '%s'...", query)
 
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     year_str = datetime.datetime.now().strftime("%Y")
@@ -49,54 +46,56 @@ def fetch_grok_intel(query: str, override_prompt: str = None) -> str:
         )
         user_content = f"Search X for the latest trends about '{query}' happened in {year_str}. Focus on specific recent events. Reply in Chinese."
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {XAI_API_KEY}"
-    }
-
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {
-                "role": "system", 
-                "content": system_content
-            },
-            {
-                "role": "user", 
-                "content": user_content
-            }
-        ],
-        "stream": False,
-        "temperature": 0.5
-    }
-
     try:
-        response = httpx.post(XAI_BASE_URL, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        
-        data = response.json()
-        content = data['choices'][0]['message']['content']
-        
-        print("\n" + "="*60)
-        print(f"  🦅 Grok Intelligence Report: {query}")
-        print("="*60 + "\n")
-        print(content)
-        
+        # 通过工厂函数获取当前配置的 LLM Provider
+        llm = get_llm_provider()
+        content = llm.analyze(system_content, user_content, timeout=60)
+
+        logger.info("情报报告已生成: %s", query)
+        logger.debug(content)
         return content
-        
-    except httpx.HTTPStatusError as e:
-        err = f"⚠️ API Error: {e.response.status_code} - {e.response.text}"
-        print(err)
-        return err
+
     except Exception as e:
-        err = f"⚠️ Connection Error: {e}"
-        print(err)
+        err = f"LLM 调用错误: {e}"
+        logger.error(err)
         return err
+
+class GrokSensor(BaseSensor):
+    """Grok/X 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        return "Grok/X"
+
+    def is_available(self) -> bool:
+        return XAI_API_KEY is not None
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        report = fetch_grok_intel("AI Agents, LLM, Tech Startups")
+        if report and "Error" not in report:
+            return [
+                SensorResult(
+                    title="X/Grok Intelligence Report",
+                    url="https://x.com",
+                    source="X (via Grok)",
+                    category="social",
+                    summary=report[:200],
+                    metadata={"content": report, "type": "markdown_report"},
+                )
+            ]
+        return []
+
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     if len(sys.argv) < 2:
         print("Usage: python x_grok_sensor.py <query>")
         print("Example: python x_grok_sensor.py 'AI Agents'")
     else:
         q = sys.argv[1]
-        fetch_grok_intel(q)
+        result = fetch_grok_intel(q)
+        print(result)

@@ -1,21 +1,22 @@
 """
-Product Hunt Sensor - Fetches trending products from Product Hunt.
-Uses the official GraphQL API (requires API token for full access).
-Falls back to scraping if no token available.
+Product Hunt Sensor - 从 Product Hunt 获取热门产品。
+使用官方 GraphQL API（需要 API token），无 token 时回退到网页抓取。
 """
 import sys
 import os
 import re
 import json
+import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-try:
-    import httpx
-except ImportError:
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "httpx", "-q"])
-    import httpx
+import httpx
+from dotenv import load_dotenv
+
+from src.sensors.base import BaseSensor, SensorResult, retry_request
+
+load_dotenv()
+logger = logging.getLogger(__name__)
 
 @dataclass
 class PHProduct:
@@ -31,43 +32,24 @@ class PHProduct:
     thumbnail_url: Optional[str] = None
 
 def load_ph_token() -> Optional[str]:
-    """Load Product Hunt API token from .env."""
-    # Try multiple possible .env locations
-    possible_paths = [
-        os.path.join(os.path.dirname(__file__), "..", "..", ".env"),  # D:\Intel_Briefing\.env
-        os.path.join(os.path.dirname(__file__), "..", ".env"),        # D:\Intel_Briefing\src\.env
-        os.path.join(os.getcwd(), ".env"),                            # Current working dir
-    ]
-    
-    for env_path in possible_paths:
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8-sig") as f:
-                for line in f:
-                    if "PRODUCTHUNT_TOKEN" in line:
-                        parts = line.strip().split("=", 1)
-                        if len(parts) == 2:
-                            token = parts[1].strip().strip('"').strip("'")
-                            if token:
-                                # Start hidden to avoid log spam
-                                # print(f"    (Loaded PH token from {os.path.basename(env_path)})")
-                                return token
-    return None
+    """Load Product Hunt API token from environment."""
+    return os.getenv("PRODUCTHUNT_TOKEN")
 
 def fetch_trending_products(limit: int = 10) -> List[PHProduct]:
     """Fetch trending products from Product Hunt."""
-    print(f"  → Fetching top {limit} products from Product Hunt...")
+    logger.info("正在获取 Product Hunt 前 %d 个产品...", limit)
     
     token = load_ph_token()
     
     if token:
-        print("    (Using Official API Token)")
+        logger.info("使用官方 API Token")
         try:
             return _fetch_via_api(token, limit)
         except Exception as e:
-            print(f"    ⚠️ API Fetch Failed: {e}. Falling back to hydration...")
+            logger.warning("API 获取失败: %s，回退到网页抓取...", e)
             
     # Fallback to hydration
-    print("    (No API token found or API failed, using web scraping fallback)")
+    logger.info("无 API token 或 API 失败，使用网页抓取回退方案")
     return _fetch_via_hydration(limit)
 
 def _fetch_via_api(token: str, limit: int) -> List[PHProduct]:
@@ -142,7 +124,7 @@ def _fetch_via_hydration(limit: int) -> List[PHProduct]:
     Advanced Scraping: Extracts data from Next.js hydration state.
     No API token required.
     """
-    print("    (Using Next.js hydration extraction - No Token Needed)")
+    logger.info("使用 Next.js hydration 提取方式（无需 Token）")
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -155,7 +137,7 @@ def _fetch_via_hydration(limit: int) -> List[PHProduct]:
         # 1. Extract __NEXT_DATA__ JSON blob
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>', html)
         if not match:
-            print("    ⚠️ Could not find __NEXT_DATA__ on page.")
+            logger.warning("未找到 __NEXT_DATA__")
             return _fetch_via_scraping_fallback(limit)
             
         data = json.loads(match.group(1))
@@ -206,7 +188,7 @@ def _fetch_via_hydration(limit: int) -> List[PHProduct]:
         return products
         
     except Exception as e:
-        print(f"    ⚠️ Hydration extraction failed: {e}")
+        logger.warning("Hydration 提取失败: %s", e)
         # STOP: Do not fall back to Grok (AI Generation) to avoid hallucinations.
         # return _fetch_via_scraping_fallback(limit) 
         return []
@@ -228,7 +210,7 @@ def _fetch_via_grok(limit: int) -> List[PHProduct]:
         sys.path.insert(0, os.path.dirname(__file__))
         from x_grok_sensor import fetch_grok_intel
     
-    print("    (Using Grok Sensor as Cloudflare bypass)")
+    logger.info("使用 Grok Sensor 绕过 Cloudflare")
     
     prompt = f"""Access Product Hunt (producthunt.com) and find the top {limit} trending products today.
 For each product, provide:
@@ -266,13 +248,13 @@ ONLY output the JSON array, no other text. If you cannot access Product Hunt, re
                     maker_name=item.get("maker_name", "Unknown"),
                     maker_twitter=None
                 ))
-            print(f"    ✅ Grok returned {len(products)} products")
+            logger.info("Grok 返回 %d 个产品", len(products))
             return products
         else:
-            print("    ⚠️ Grok response did not contain valid JSON")
+            logger.warning("Grok 响应不包含有效 JSON")
             return []
     except Exception as e:
-        print(f"    ⚠️ Grok Sensor failed: {e}")
+        logger.warning("Grok Sensor 失败: %s", e)
         return []
 
 def print_products(products: List[PHProduct]):
@@ -288,10 +270,44 @@ def print_products(products: List[PHProduct]):
         print(f"   🔗 {p.url}")
         print()
 
+class ProductHuntSensor(BaseSensor):
+    """Product Hunt 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        return "Product Hunt"
+
+    def fetch(self, limit: int = 10) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        products = fetch_trending_products(limit)
+        return [
+            SensorResult(
+                title=p.name,
+                url=p.url,
+                source="Product Hunt",
+                category="product_gems",
+                heat=f"{p.votes_count} votes",
+                summary=p.tagline,
+                metadata={"maker": p.maker_name, "topics": p.topics},
+            )
+            for p in products
+        ]
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    products = fetch_trending_products(limit)
-    if products:
-        print_products(products)
+    sensor = ProductHuntSensor()
+    results = sensor.fetch_with_cache(limit)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            print(f"   {r.summary}")
+            print(f"   {r.heat}")
+            print(f"   {r.url}")
+            print()
     else:
         print("No products found.")

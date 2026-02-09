@@ -1,0 +1,21 @@
+services:
+  intel-report:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./reports:/app/reports
+    command: ["python", "run_mission.py"]
+
+  cron:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./reports:/app/reports
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "0 8 * * * cd /app && python run_mission.py >> /var/log/cron.log 2>&1" > /etc/crontab &&
+        crontab /etc/crontab &&
+        crond -f -l 2

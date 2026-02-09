@@ -4,7 +4,6 @@ import os
 import datetime
 
 # Add sensors path
-# Add sensors path
 sys.path.append(os.path.join(os.path.dirname(__file__), "src", "sensors"))
 # Add src path for utils
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
@@ -18,8 +17,11 @@ except ImportError as e:
 
 import re
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+# Ensure UTF-8 output (may fail on some Linux systems)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 def run_alpha_scan():
     today = datetime.datetime.now().strftime("%Y-%m-%d")

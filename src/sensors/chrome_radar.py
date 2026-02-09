@@ -2,14 +2,16 @@
 import httpx
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import sys
 import re
 import time
 import random
+import logging
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
+from src.sensors.base import BaseSensor, SensorResult
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ChromeAssetOpportunity:
@@ -41,14 +43,15 @@ class ChromeRadar:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9"
         }
-        self.client = httpx.Client(headers=self.headers, timeout=20.0, follow_redirects=True)
+        self.client = None
 
     def scan_opportunities(self, limit: int = 3) -> List[ChromeAssetOpportunity]:
-        print(f"🛒 Scanning Chrome Web Store for 'Ugly Cash Cows'...")
+        logger.info("正在扫描 Chrome Web Store...")
         opportunities = []
-        
-        for cat_name, url in self.CATEGORIES.items():
-            print(f"  - Scanning category: {cat_name}...")
+        self.client = httpx.Client(headers=self.headers, timeout=20.0, follow_redirects=True)
+        try:
+          for cat_name, url in self.CATEGORIES.items():
+            logger.info("正在扫描分类: %s...", cat_name)
             try:
                 response = self.client.get(url)
                 soup = BeautifulSoup(response.content, "html.parser")
@@ -59,7 +62,7 @@ class ChromeRadar:
                 # Rating: span.V979hc
                 
                 cards = soup.select("a.UvhDdd")
-                print(f"    Found {len(cards)} items.")
+                logger.info("找到 %d 个项目", len(cards))
                 
                 for card in cards:
                     try:
@@ -83,7 +86,7 @@ class ChromeRadar:
                         if rating > self.MAX_RATING:
                             continue
                             
-                        print(f"    🔍 Checking weak target: {name} ({rating}⭐)...")
+                        logger.info("检查弱目标: %s (%.1f 星)...", name, rating)
                         
                         # Deep Dive: Check User Count on Detail Page
                         user_count_str, user_cnt, kill_shot = self._inspect_detail_page(full_url)
@@ -100,7 +103,7 @@ class ChromeRadar:
                                 kill_shot=kill_shot
                             )
                             opportunities.append(opp)
-                            print(f"    💎 FOUND GEM: {name} ({user_count_str} users, {rating} stars)")
+                            logger.info("发现目标: %s (%s 用户, %.1f 星)", name, user_count_str, rating)
                             
                             if len(opportunities) >= limit:
                                 return opportunities
@@ -109,15 +112,18 @@ class ChromeRadar:
                         time.sleep(random.uniform(0.5, 1.5))
                         
                     except Exception as e:
-                        print(f"    ⚠️ Error parsing card: {e}")
+                        logger.warning("解析卡片出错: %s", e)
                         continue
                         
             except Exception as e:
-                print(f"  ❌ Error scanning category {cat_name}: {e}")
-                
+                logger.error("扫描分类 %s 出错: %s", cat_name, e)
+        finally:
+          self.client.close()
+          self.client = None
+
         return opportunities
 
-    def _inspect_detail_page(self, url: str) -> (str, int, str):
+    def _inspect_detail_page(self, url: str) -> Tuple[str, int, str]:
         """
         Visits the extension detail page to get User Count and 1-Star Reviews.
         """
@@ -159,12 +165,43 @@ class ChromeRadar:
             # print(f"    Error inspecting detail page: {e}")
             return "0", 0, ""
 
+class ChromeSensor(BaseSensor):
+    """Chrome Web Store 传感器，基于 BaseSensor 统一接口"""
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        return "Chrome Web Store"
+
+    def fetch(self, limit: int = 3) -> List[SensorResult]:
+        """获取数据并转换为统一的 SensorResult 格式"""
+        radar = ChromeRadar()
+        opps = radar.scan_opportunities(limit=limit)
+        return [
+            SensorResult(
+                title=o.name,
+                url=o.url,
+                source="Chrome Web Store",
+                category="chrome_assets",
+                heat=f"{o.rating} stars | {o.user_count_str} users",
+                summary=o.description,
+                metadata={"kill_shot": o.kill_shot},
+            )
+            for o in opps
+        ]
+
+
 if __name__ == "__main__":
-    radar = ChromeRadar()
-    opps = radar.scan_opportunities(limit=3)
-    for opp in opps:
-        print(f"💎 GEM: {opp.name}")
-        print(f"   Stats: {opp.rating}⭐ | {opp.user_count_str} Users")
-        print(f"   URL: {opp.url}")
-        print(f"   Kill Shot: {opp.kill_shot}")
-        print("-" * 40)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    sensor = ChromeSensor()
+    results = sensor.fetch(limit=3)
+    if results:
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.title}")
+            print(f"   {r.heat}")
+            print(f"   {r.url}")
+            print()
+    else:
+        print("No Chrome Web Store opportunities found.")
